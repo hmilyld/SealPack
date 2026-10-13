@@ -1,5 +1,10 @@
 # SealPack
 
+[![CI](https://github.com/hmilyld/SealPack/actions/workflows/ci.yml/badge.svg)](https://github.com/hmilyld/SealPack/actions/workflows/ci.yml)
+[![Release](https://github.com/hmilyld/SealPack/actions/workflows/release.yml/badge.svg)](https://github.com/hmilyld/SealPack/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)
+
 **程序合并 / 加密 / 打包工作台** —— Windows 桌面应用，基于 **Rust + Tauri 2**，前端为原生 TypeScript + TailwindCSS 4。
 
 它把三个成熟的外部命令行工具串成一条可视化的三阶段流水线：

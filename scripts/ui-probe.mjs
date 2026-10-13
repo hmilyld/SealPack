@@ -147,8 +147,27 @@ const setSystemTheme = (value) =>
     features: [{ name: "prefers-color-scheme", value }],
   });
 
+/**
+ * 等界面骨架就绪（首帧 + 脚本装配完成）。
+ *
+ * CI 的冷启动可能比本机慢好几倍，光靠固定 sleep 会随机失败；
+ * 这里先轮询到就绪，再走原来的固定等待 —— 只增加余量，不改变既有节奏。
+ */
+async function waitForReady(timeout = 15000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const ready = await evaluate(
+      `document.readyState === "complete" && !!document.querySelector("#steps")`,
+    ).catch(() => false);
+    if (ready) return true;
+    await sleep(100);
+  }
+  return false;
+}
+
 async function goto(path, wait = 1700) {
   await send("Page.navigate", { url: `${BASE}${path}` });
+  await waitForReady();
   await sleep(wait);
 }
 

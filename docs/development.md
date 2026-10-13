@@ -29,11 +29,15 @@ pnpm run check:render-parity   # 校验两侧模板生成器逐字一致
 cd src-tauri
 cargo test                     # Rust 单元测试
 cargo test -- --ignored        # 需要外网的测试：真实下载工具 + 生成一致性 fixture
+cargo fmt                      # 提交 Rust 代码前跑一下（CI 会检查）
+cargo clippy --all-targets -- -D warnings
 ```
 
-- **没有 lint 或 formatter**。类型检查是 `tsc --noEmit`，只在 `build` / `build:preview` 里跑。
+- **前端没有 lint 或 formatter**。类型检查是 `tsc --noEmit`，只在 `build` / `build:preview` 里跑。
   `tsconfig.json` 开了 `noUnusedLocals` / `noUnusedParameters`，未使用的变量会让构建失败。
-- **没有 CI、没有 pre-commit hook** —— 下面的检查都得手动跑。
+- **Rust 有格式与 lint 门禁**：`cargo fmt --check` 与 `cargo clippy --all-targets -- -D warnings`
+  都是干净的，CI 会卡住。`defaults.rs` 的测试模块有一处**限定在模块内**的
+  `#[allow(clippy::field_reassign_with_default)]` —— 用例表那种「先取默认值再逐项覆盖」的写法更好读。
 - 单跑一条 Rust 测试：`cargo test <过滤词>`，例如 `cargo test defaults::`。
 
 ## 只调试界面（不启动 Tauri）
@@ -185,8 +189,15 @@ ConfuserEx 的 16 个文件一个都不能少 —— 这两条只有拿真包才
 pnpm run app:build    # 产出 NSIS 安装包，位于 src-tauri/target/release/bundle/nsis/
 ```
 
+CI 里由 `release.yml` 跑同一条命令（推 `v*` 标签时自动附到 Release）。本地打标签即可发版：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
 `tauri.conf.json` 里 `targets: ["nsis"]`、`installMode: "currentUser"`（装到当前用户目录，不需要管理员权限）。
-`bundle.resources` 只包含 `resources/tools` —— 模板不随包分发，它们由 Rust 生成。
+`bundle.resources` 包含 `resources/tools`（内置的 ILMerge 与 ConfuserEx）与 `resources/isl`
+（Inno Setup 中文语言包）—— 模板本身不随包分发，它们由 Rust 生成。
 
 ## 目录结构
 
@@ -195,6 +206,7 @@ pnpm run app:build    # 产出 NSIS 安装包，位于 src-tauri/target/release/
 ├── preview.html                浏览器 UI 预览入口
 ├── vite.config.ts              主构建配置（dev server 固定 1420）
 ├── vite.preview.config.ts      预览专用构建（base: "./" + 独立 outDir，不污染应用包）
+├── .github/workflows/          CI（四条门禁）与 Release（构建安装包）
 ├── docs/
 │   ├── images/                 README 用的精选截图（随仓库提交）
 │   ├── fixtures/               Rust 侧生成结果的黄金样本（一致性校验用，随仓库提交）
@@ -218,16 +230,48 @@ pnpm run app:build    # 产出 NSIS 安装包，位于 src-tauri/target/release/
     └── tauri.conf.json
 ```
 
+## CI
+
+`.github/workflows/` 下两个工作流。
+
+### `ci.yml` —— 推 `main` 与每个 PR
+
+| Job | 运行环境 | 内容 |
+| --- | --- | --- |
+| `frontend` | ubuntu-latest | `pnpm install --frozen-lockfile` → `build:preview`（含 `tsc --noEmit`）→ `check:render-parity` |
+| `rust` | windows-latest | `cargo fmt --check` → `cargo clippy --all-targets -- -D warnings` → `cargo test` |
+| `ui-probe` | windows-latest | 构建预览 → 跑 CDP 探针；截图作为产物保留 7 天（失败时也上传，便于对照） |
+
+两个 Windows job 而不是 Linux：Windows 是唯一的目标平台。放到 ubuntu 上要额外装
+`webkit2gtk` 之类的系统依赖，而且测的不是真实环境。GitHub 的 Windows runner 自带 Edge，
+探针脚本会自己探测到它。
+
+`concurrency` 按分支分组且 `cancel-in-progress`：连续推几次不会排队跑一堆已经过时的任务。
+
+### `release.yml` —— 推 `v*` 标签或手动触发
+
+`pnpm run app:build` 产出 NSIS 安装包：
+
+- **推 `v*` 标签** → 构建后创建 GitHub Release（`--generate-notes` 自动汇总变更）并附上安装包；
+  若 Release 已存在则改为补传（`--clobber`），所以「先手写 Release、再让 CI 补产物」也行。
+- **手动触发** → 只上传为工作流产物，用来随时验证打包链路是否还通。
+
+### 刻意不放进 CI 的东西
+
+`cargo test -- --ignored` 里那三条联网测试（真实下载 NuGet / GitHub / 官方源并核对 SHA-256）
+**没有**进 CI：它们依赖外网与第三方站点的可用性，让它们卡住 PR 只会制造噪声。需要时手动跑。
+
 ## 交付前的最小检查清单
 
 ```bash
 pnpm run build:preview                                            # 含 tsc --noEmit
 pnpm run check:render-parity                                      # 若动过模板生成器
 node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shots
-cd src-tauri && cargo test
+cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
-四条全绿再提交。改过界面就顺带看一眼 `docs/shots/` 里对应的截图，确认观感没有意外变化。
+全绿再提交（CI 会再跑一遍同样的东西）。改过界面就顺带看一眼 `docs/shots/` 里对应的截图，
+确认观感没有意外变化。
 
 **另外两类改动必须额外验证：**
 

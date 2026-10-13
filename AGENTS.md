@@ -15,10 +15,11 @@ cd src-tauri && cargo test              # Rust unit tests
 cd src-tauri && cargo test -- --ignored # network tests + fixture regeneration
 ```
 
-- There is **no lint or formatter**. Typecheck is `tsc --noEmit`, run only inside `build` / `build:preview`. tsconfig is strict with `noUnusedLocals` / `noUnusedParameters` — unused vars fail the build. Note `noUnusedLocals` does **not** flag unreferenced *exports*; dead exports only show up via grep.
+- There is **no lint or formatter for the frontend**; TypeScript is checked by `tsc --noEmit`, run only inside `build` / `build:preview`. tsconfig is strict with `noUnusedLocals` / `noUnusedParameters` — unused vars fail the build. Note `noUnusedLocals` does **not** flag unreferenced *exports*; dead exports only show up via grep.
+- **Rust does have gates now**: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` are both clean and enforced by CI. Run `cargo fmt` before committing Rust. `defaults.rs`'s test module carries a scoped `#[allow(clippy::field_reassign_with_default)]` (the case-table style reads better there).
 - Single Rust test: `cargo test <filter>`, e.g. `cargo test defaults::`.
 - `check:render-parity` needs `docs/fixtures/render-fixtures.json`, which is committed. Regenerate it after touching either generator: `cargo test --lib dump_render_fixtures -- --ignored`.
-- **No CI / no pre-commit hooks** — nothing runs these checks for you.
+- **CI runs on every push to `main` and every PR** (`.github/workflows/ci.yml`, 3 jobs: frontend on ubuntu, Rust + UI probe on windows). Release is `.github/workflows/release.yml`: pushing a `v*` tag builds the NSIS installer and attaches it to a GitHub Release; `workflow_dispatch` builds it as a plain artifact. There are no git hooks, so run the checks locally before pushing.
 
 ## Minimum check before handing work back
 
@@ -26,7 +27,7 @@ cd src-tauri && cargo test -- --ignored # network tests + fixture regeneration
 pnpm run build:preview
 pnpm run check:render-parity                                      # if you touched either generator
 node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shots
-cd src-tauri && cargo test
+cd src-tauri && cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
 ## UI regression (verify frontend changes here)

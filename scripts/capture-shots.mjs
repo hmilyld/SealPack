@@ -141,6 +141,15 @@ async function runSteps(steps = []) {
 
 async function shoot({ name, path, prepare }) {
   await send("Page.navigate", { url: `${BASE}${path}` });
+  // 先等骨架就绪再走固定等待：CI 冷启动慢，固定 sleep 会拍到半渲染的画面
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const ready = await evaluate(
+      `document.readyState === "complete" && !!document.querySelector("#steps")`,
+    ).catch(() => false);
+    if (ready) break;
+    await sleep(100);
+  }
   await sleep(1800);
   await runSteps(prepare);
   const { data } = await send("Page.captureScreenshot", { format: "png" });
