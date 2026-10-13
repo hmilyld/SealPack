@@ -172,7 +172,7 @@ mod tests {
         std::fs::write(&file, b"abc").unwrap();
         let manifest = dir.join("checksums-sha256.txt");
 
-        write_manifest("sha256", &[file.clone()], &manifest).unwrap();
+        write_manifest("sha256", std::slice::from_ref(&file), &manifest).unwrap();
         let body = std::fs::read_to_string(&manifest).unwrap();
 
         assert!(body.contains(

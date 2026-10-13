@@ -433,6 +433,10 @@ pub fn package_script(opts: &PackageOptions) -> String {
 // （属性写错位置、取值大小写不对、参数只在特定组合下才该出现）。
 // 所以用断言把它们钉住，改的时候至少知道碰到了什么。
 #[cfg(test)]
+// 测试里的用例表用「先取默认值、再逐项覆盖」比结构体更新更好读：
+// 一屏十来个字段时，不必每处都拖一个 `..Default::default()` 尾巴，改动也只看一行。
+// 只在本模块允许；业务代码里这条 lint 照常生效。
+#[allow(clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
 

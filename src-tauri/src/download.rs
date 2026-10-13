@@ -562,7 +562,7 @@ mod tests {
         let source = source_of("iscc").expect("缺少 iscc 的来源声明");
         let args = source.installer_args().expect("iscc 应声明为安装类来源");
 
-        let has = |needle: &str| args.iter().any(|a| *a == needle);
+        let has = |needle: &str| args.contains(&needle);
         assert!(has("/VERYSILENT"), "要静默");
         assert!(has("/SUPPRESSMSGBOXES"), "要抑制提示框");
         assert!(has("/PORTABLE=1"), "便携模式，不写全局注册表");
@@ -799,7 +799,7 @@ mod tests {
         let again = install(None, &tools, &cache, "ilmerge").await.unwrap();
         assert_eq!(again, exe);
 
-        let _ = std::fs::remove_dir_all(&tools.parent().unwrap());
+        let _ = std::fs::remove_dir_all(tools.parent().unwrap());
     }
 
     #[tokio::test]
@@ -819,7 +819,7 @@ mod tests {
             source_of("confuser").unwrap().size
         );
 
-        let _ = std::fs::remove_dir_all(&tools.parent().unwrap());
+        let _ = std::fs::remove_dir_all(tools.parent().unwrap());
     }
 
     /// Inno Setup 只提供安装程序，而安装需要管理员授权。
@@ -846,6 +846,6 @@ mod tests {
             source.sha256
         );
 
-        let _ = std::fs::remove_dir_all(&tools.parent().unwrap());
+        let _ = std::fs::remove_dir_all(tools.parent().unwrap());
     }
 }
