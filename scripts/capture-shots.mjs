@@ -139,6 +139,25 @@ async function runSteps(steps = []) {
   }
 }
 
+/**
+ * 截图前冻结动画与过渡。
+ *
+ * 终端皮肤有 CSS 扫描线动画、设置页的下载条在推进 —— 不冻结的话每次抓图都会得到
+ * 「看起来一样、字节不同」的产物，重抓一次就多一份无意义的 diff。
+ * 冻结后同一份代码抓出来的图逐字节一致。
+ */
+async function freezeAnimations() {
+  await evaluate(`(() => {
+    if (document.getElementById("shot-freeze")) return true;
+    const style = document.createElement("style");
+    style.id = "shot-freeze";
+    style.textContent =
+      "*, *::before, *::after { animation: none !important; transition: none !important; }";
+    document.head.appendChild(style);
+    return true;
+  })()`);
+}
+
 async function shoot({ name, path, prepare }) {
   await send("Page.navigate", { url: `${BASE}${path}` });
   // 先等骨架就绪再走固定等待：CI 冷启动慢，固定 sleep 会拍到半渲染的画面
@@ -151,7 +170,9 @@ async function shoot({ name, path, prepare }) {
     await sleep(100);
   }
   await sleep(1800);
+  await freezeAnimations();
   await runSteps(prepare);
+  await freezeAnimations();
   const { data } = await send("Page.captureScreenshot", { format: "png" });
   const file = join(OUT, `${name}.png`);
   writeFileSync(file, Buffer.from(data, "base64"));
@@ -198,8 +219,9 @@ await shoot({
   path: "/preview.html?skin=swiss&theme=light",
   prepare: [
     { selector: "#settings-btn", wait: 1200 },
-    // 让工具链下载条上的进度可见：点一次下载，等它推进到中途
-    { selector: ".overlay .tool-row:last-child [data-dl]", wait: 420 },
+    // 点一次下载并等它跑完（mock 约 500ms 结束）。**必须等终态** ——
+    // 停在进度条中途的话，抓到的百分比取决于当次时序，图会每次都不一样。
+    { selector: ".overlay .tool-row:last-child [data-dl]", wait: 1400 },
   ],
 });
 
