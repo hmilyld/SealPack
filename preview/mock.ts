@@ -1,6 +1,7 @@
 // 浏览器内 UI 预览用的 Tauri IPC 模拟层。
 // 用法：pnpm run dev 后打开 http://localhost:1420/preview.html
 // 可通过 ?theme=light / ?theme=dark 指定主题。
+import appConfig from "../src-tauri/tauri.conf.json";
 import { renderEncryptConfig, renderPackageScript } from "./render";
 
 const ROOT = "D:\\Projects\\SampleTool\\bin\\Release";
@@ -460,8 +461,9 @@ if (new URLSearchParams(location.search).get("dialog") === "settings") {
       if (cmd.includes("is_maximized")) return false;
       return undefined;
     }
-    // 应用信息（版本号等）
-    if (cmd === "plugin:app|version") return "0.1.0";
+    // 应用信息（版本号等）—— 版本号直接读 tauri.conf.json，与真机同源，
+    // 升版时不会再漏掉这个 mock（真机的 getVersion() 同样读自它）。
+    if (cmd === "plugin:app|version") return appConfig.version;
     if (cmd === "plugin:app|name") return "SealPack";
     if (cmd.startsWith("plugin:app|")) return undefined;
     // 窗口材质：浏览器里没有 DWM，真实运行时由 Rust 的 set_effects() 决定。

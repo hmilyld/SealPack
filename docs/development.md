@@ -202,7 +202,8 @@ git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 
 **注意：安装包的文件名与界面上的版本号来自 `tauri.conf.json` 的 `version`，标签只是触发器。**
 忘记改版本号的话，Release 标着 v0.2.0、装出来的却是 0.1.0 —— 所以 `release.yml`
-里有一道「标签与版本号一致」的核对，不一致直接失败。
+里有一道「标签与版本号一致」的核对，不一致直接失败。核对覆盖两条发布路径：
+推标签，以及手动触发时填的 `tag` 输入。
 
 `tauri.conf.json` 里 `targets: ["nsis"]`、`installMode: "currentUser"`（装到当前用户目录，不需要管理员权限）。
 `bundle.resources` 包含 `resources/tools`（内置的 ILMerge 与 ConfuserEx）与 `resources/isl`
@@ -263,7 +264,8 @@ git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 
 - **推 `v*` 标签** → 构建后创建 GitHub Release（`--generate-notes` 自动汇总变更）并附上安装包；
   若 Release 已存在则改为补传（`--clobber`），所以「先手写 Release、再让 CI 补产物」也行。
-- **手动触发** → 默认只上传为工作流产物；填了 `tag` 输入（如 `v0.1.0`）就一并发布成 Release。
+- **手动触发** → 默认只上传为工作流产物；填了 `tag` 输入（如 `v0.1.0`）就一并发布成 Release
+  （`tag` 输入与推标签一样要先过「标签与版本号一致」的核对）。
 
 > ⚠ **工作流产物 ≠ Release 附件**，别把两者搞混：
 > 产物在 Actions 的运行页里，**需要登录才能下载**、默认 30 天过期，仓库首页与 `/releases`

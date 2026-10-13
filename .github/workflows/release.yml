@@ -54,18 +54,23 @@ jobs:
       - name: 核对标签与版本号一致
         # 安装包的文件名与界面上的版本号来自 tauri.conf.json，标签只是触发器；
         # 两者不一致的话，Release 标着 v0.2.0、装出来的却是 0.1.0，非常误导。
-        # 只在标签触发时核对（workflow_dispatch 没有标签可对）。
-        if: startsWith(github.ref, 'refs/tags/v')
+        # 标签触发，或手动触发时填了 tag 输入（两者都会按该标签发布 Release），
+        # 都要核对 —— 手动路径漏掉的话，同样的坑还能从那条路踩进来。
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         shell: bash
+        env:
+          # 与「附到 GitHub Release」步骤同一条规则：手动填了 tag 就以它为准
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${RELEASE_TAG#v}"
           CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
           PKG=$(node -p "require('./package.json').version")
-          echo "标签版本：$TAG　tauri.conf.json：$CONF　package.json：$PKG"
-          if [ "$TAG" != "$CONF" ] || [ "$TAG" != "$PKG" ]; then
-            echo "版本号不一致：标签 v$TAG，但配置里是 $CONF / $PKG" >&2
-            echo "请先把三处版本号都改到 $TAG 再打标签" >&2
+          CARGO=$(awk -F'"' '/^version = /{print $2; exit}' src-tauri/Cargo.toml)
+          echo "标签版本：$TAG　tauri.conf.json：$CONF　package.json：$PKG　Cargo.toml：$CARGO"
+          if [ "$TAG" != "$CONF" ] || [ "$TAG" != "$PKG" ] || [ "$TAG" != "$CARGO" ]; then
+            echo "版本号不一致：标签 v$TAG，但配置里是 $CONF / $PKG / $CARGO" >&2
+            echo "请先把三处版本号（package.json / tauri.conf.json / Cargo.toml）都改到 $TAG 再打标签" >&2
             exit 1
           fi
 
