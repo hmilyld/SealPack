@@ -2,12 +2,21 @@ name: Release
 
 # 构建 NSIS 安装包。
 #   · 推 v* 标签 → 构建并创建 GitHub Release，把安装包附上去
-#   · 手动触发 → 只构建并上传为工作流产物，便于随时验证打包链路
+#   · 手动触发 → 默认只产出工作流产物；填了 `tag` 输入就一并发布成 Release
+#
+# 注意「工作流产物」与「Release 附件」是两回事：
+#   产物在 Actions 的运行页里，需要登录才能下载、默认 30 天过期，
+#   仓库首页与 /releases 都看不到；要让安装包真正对外可见，必须走 Release。
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 可选：填了就发布为该标签的 Release（例如 v0.1.0）；留空只产出工作流产物
+        required: false
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -57,11 +66,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: 附到 GitHub Release（仅标签触发）
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: 附到 GitHub Release
+        # 标签触发，或手动触发时填了 tag 输入
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 标签触发时 inputs.tag 为空，回退到本次的 ref（即标签名）
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -70,12 +82,14 @@ jobs:
             echo "没有找到安装包，构建可能失败了" >&2
             exit 1
           fi
+          echo "发布标签：$RELEASE_TAG"
           # 允许先手动建 Release 再补传产物
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" \
-              --title "$GITHUB_REF_NAME" \
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
               --generate-notes \
               "${files[@]}"
           fi
+          echo "完成：$(gh release view "$RELEASE_TAG" --json url --jq .url)"
