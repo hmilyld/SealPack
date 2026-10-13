@@ -111,10 +111,7 @@ pub async fn save_project(
 }
 
 #[tauri::command]
-pub async fn delete_project(
-    state: tauri::State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub async fn delete_project(state: tauri::State<'_, AppState>, id: String) -> Result<(), String> {
     store::delete_project(&state.projects_dir, &id).map_err(to_err)
 }
 
@@ -344,7 +341,13 @@ fn detect_version(path: &str) -> Option<String> {
         let sub: Vec<u16> = "\\".encode_utf16().chain(std::iter::once(0)).collect();
         let mut ptr: *mut c_void = std::ptr::null_mut();
         let mut len: u32 = 0;
-        if VerQueryValueW(buffer.as_ptr() as *const c_void, sub.as_ptr(), &mut ptr, &mut len) == 0 {
+        if VerQueryValueW(
+            buffer.as_ptr() as *const c_void,
+            sub.as_ptr(),
+            &mut ptr,
+            &mut len,
+        ) == 0
+        {
             return None;
         }
         // VS_FIXEDFILEINFO 至少需要 24 字节才能取到 ProductVersion

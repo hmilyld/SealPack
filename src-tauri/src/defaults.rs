@@ -51,7 +51,13 @@ fn normalize_elements(raw: &str) -> String {
 
 const PRESETS: &[&str] = &["none", "minimum", "normal", "aggressive", "maximum"];
 const RENAME_MODES: &[&str] = &[
-    "unicode", "letters", "ascii", "sequential", "decodable", "reversible", "retain",
+    "unicode",
+    "letters",
+    "ascii",
+    "sequential",
+    "decodable",
+    "reversible",
+    "retain",
 ];
 const CF_TYPES: &[&str] = &["switch", "jump"];
 const CF_PREDICATES: &[&str] = &["normal", "expression", "x86"];
@@ -69,10 +75,7 @@ const TAMPER_KEYS: &[&str] = &["normal", "dynamic"];
 /// 而不是让人去猜哪些参数被省略了、省略后又是什么值。
 fn protection_args(opts: &EncryptOptions, id: &str) -> Vec<(&'static str, String)> {
     match id {
-        "anti debug" => vec![(
-            "mode",
-            pick(&opts.debug_mode, DEBUG_MODES, "safe"),
-        )],
+        "anti debug" => vec![("mode", pick(&opts.debug_mode, DEBUG_MODES, "safe"))],
 
         "anti tamper" => vec![
             ("mode", pick(&opts.tamper_mode, TAMPER_MODES, "normal")),
@@ -260,7 +263,11 @@ pub fn package_script(opts: &PackageOptions) -> String {
     let multi_volume = mode == "multi_volume";
 
     let encryption = pick(&opts.encryption, ENCRYPTIONS, "yes");
-    let privileges = if opts.require_admin { "admin" } else { "lowest" };
+    let privileges = if opts.require_admin {
+        "admin"
+    } else {
+        "lowest"
+    };
     let wizard = pick(&opts.wizard_style, WIZARD_STYLES, "modern");
 
     let mut out = String::new();
@@ -457,9 +464,18 @@ mod tests {
         let out = encrypt(opts);
 
         assert!(out.contains("<protection id=\"constants\">"), "{out}");
-        assert!(out.contains("<argument name=\"mode\" value=\"normal\" />"), "{out}");
-        assert!(out.contains("<argument name=\"elements\" value=\"SI\" />"), "{out}");
-        assert!(out.contains("<argument name=\"cfg\" value=\"true\" />"), "{out}");
+        assert!(
+            out.contains("<argument name=\"mode\" value=\"normal\" />"),
+            "{out}"
+        );
+        assert!(
+            out.contains("<argument name=\"elements\" value=\"SI\" />"),
+            "{out}"
+        );
+        assert!(
+            out.contains("<argument name=\"cfg\" value=\"true\" />"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -483,7 +499,12 @@ mod tests {
         let out = encrypt(opts);
 
         // snKey / snKeyPass 是 <module> 的属性；写到 <project> 上 ConfuserEx 会静默忽略
-        assert!(out.contains("<module path=\"${exe}\" snKey=\"D:\\keys\\app.snk\" snKeyPass=\"p@ss\" />"), "{out}");
+        assert!(
+            out.contains(
+                "<module path=\"${exe}\" snKey=\"D:\\keys\\app.snk\" snKeyPass=\"p@ss\" />"
+            ),
+            "{out}"
+        );
         let project_line = out.lines().next().unwrap();
         assert!(!project_line.contains("snKey"), "{project_line}");
     }
@@ -505,8 +526,14 @@ mod tests {
         opts.anti_debug = true;
         let out = encrypt(opts);
 
-        assert!(out.contains("<argument name=\"mode\" value=\"unicode\" />"), "{out}");
-        assert!(out.contains("<argument name=\"mode\" value=\"safe\" />"), "{out}");
+        assert!(
+            out.contains("<argument name=\"mode\" value=\"unicode\" />"),
+            "{out}"
+        );
+        assert!(
+            out.contains("<argument name=\"mode\" value=\"safe\" />"),
+            "{out}"
+        );
     }
 
     #[test]
@@ -520,7 +547,10 @@ mod tests {
 
         opts.rename_mode = "reversible".into();
         let reversible = encrypt(opts);
-        assert!(reversible.contains("<argument name=\"password\" value=\"secret\" />"), "{reversible}");
+        assert!(
+            reversible.contains("<argument name=\"password\" value=\"secret\" />"),
+            "{reversible}"
+        );
     }
 
     #[test]
@@ -544,7 +574,10 @@ mod tests {
         opts.cf_predicate = "expression".into();
         opts.cf_depth = 6;
         let expression = encrypt(opts);
-        assert!(expression.contains("<argument name=\"depth\" value=\"6\" />"), "{expression}");
+        assert!(
+            expression.contains("<argument name=\"depth\" value=\"6\" />"),
+            "{expression}"
+        );
     }
 
     #[test]
@@ -553,7 +586,10 @@ mod tests {
         opts.control_flow = true;
         opts.cf_type = "jump".into();
         let out = encrypt(opts);
-        assert!(out.contains("<argument name=\"type\" value=\"jump\" />"), "{out}");
+        assert!(
+            out.contains("<argument name=\"type\" value=\"jump\" />"),
+            "{out}"
+        );
         assert!(!out.contains("predicate"), "{out}");
     }
 
@@ -563,7 +599,10 @@ mod tests {
         assert!(out.contains("Compression=lzma2/max\n"), "{out}");
         assert!(out.contains("SolidCompression=yes\n"), "{out}");
         assert!(out.contains("Encryption=yes\n"), "{out}");
-        assert!(out.contains("EncryptionKeyDerivation=pbkdf2/220000\n"), "{out}");
+        assert!(
+            out.contains("EncryptionKeyDerivation=pbkdf2/220000\n"),
+            "{out}"
+        );
         assert!(out.contains("PrivilegesRequired=lowest\n"), "{out}");
         assert!(out.contains("WizardStyle=modern\n"), "{out}");
         // 单文件模式不写分卷指令；0 表示「交给 Inno 自动决定」，也不该写出来
@@ -703,10 +742,7 @@ mod tests {
         let out = package(PackageOptions::default());
         assert!(out.contains(r#"Excludes: "${ignore},${exe}""#), "{out}");
         // 显式那一行仍然在，主程序不会因为被排除而漏掉
-        assert!(
-            out.contains(r#"Source: "${root}\${exe}""#),
-            "{out}"
-        );
+        assert!(out.contains(r#"Source: "${root}\${exe}""#), "{out}");
     }
 
     // ---------------------------------------------------------------- Inno 边界值
@@ -792,7 +828,10 @@ mod tests {
             out.contains(r#"MessagesFile: "ChineseSimplified.isl""#),
             "{out}"
         );
-        assert!(!out.contains("compiler:"), "不该依赖 Inno 的安装目录：{out}");
+        assert!(
+            !out.contains("compiler:"),
+            "不该依赖 Inno 的安装目录：{out}"
+        );
     }
 
     // ---------------------------------------------------------------- 一致性 fixture
@@ -810,8 +849,11 @@ mod tests {
     /// 条件参数（depth 只跟 expression / x86）、强名称签名、XML 转义、
     /// 分卷、绿色版、加密三态、签名、LZMA 参数、未知取值回退。
     fn fixture_cases() -> Vec<(&'static str, EncryptOptions, PackageOptions)> {
-        let mut cases: Vec<(&'static str, EncryptOptions, PackageOptions)> =
-            vec![("defaults", EncryptOptions::default(), PackageOptions::default())];
+        let mut cases: Vec<(&'static str, EncryptOptions, PackageOptions)> = vec![(
+            "defaults",
+            EncryptOptions::default(),
+            PackageOptions::default(),
+        )];
 
         let mut enc = EncryptOptions::default();
         enc.anti_ildasm = true;
@@ -940,7 +982,11 @@ mod tests {
 
         let mut pkg = PackageOptions::default();
         pkg.compression = "rar/9".into();
-        cases.push(("unknown-compression-falls-back", EncryptOptions::default(), pkg));
+        cases.push((
+            "unknown-compression-falls-back",
+            EncryptOptions::default(),
+            pkg,
+        ));
 
         // 官方边界：字典大小低于下界 4 → 省略该行
         let mut pkg = PackageOptions::default();

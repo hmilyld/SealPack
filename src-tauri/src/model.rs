@@ -524,15 +524,33 @@ pub struct StageOutcome {
 
 impl StageOutcome {
     pub fn ok(stage: Stage, message: impl Into<String>, artifacts: Vec<String>) -> Self {
-        Self { stage, status: "ok".into(), exit_code: Some(0), message: message.into(), artifacts }
+        Self {
+            stage,
+            status: "ok".into(),
+            exit_code: Some(0),
+            message: message.into(),
+            artifacts,
+        }
     }
 
     pub fn skipped(stage: Stage, message: impl Into<String>) -> Self {
-        Self { stage, status: "skipped".into(), exit_code: None, message: message.into(), artifacts: vec![] }
+        Self {
+            stage,
+            status: "skipped".into(),
+            exit_code: None,
+            message: message.into(),
+            artifacts: vec![],
+        }
     }
 
     pub fn failed(stage: Stage, exit_code: Option<i32>, message: impl Into<String>) -> Self {
-        Self { stage, status: "failed".into(), exit_code, message: message.into(), artifacts: vec![] }
+        Self {
+            stage,
+            status: "failed".into(),
+            exit_code,
+            message: message.into(),
+            artifacts: vec![],
+        }
     }
 }
 
@@ -601,7 +619,10 @@ mod tests {
     #[test]
     fn relative_to_keeps_foreign_paths_intact() {
         // 不在 root 下：原样返回（不猜、不裁剪）
-        assert_eq!(relative_to(r"D:\App", r"E:\Other\lib.dll"), r"E:\Other\lib.dll");
+        assert_eq!(
+            relative_to(r"D:\App", r"E:\Other\lib.dll"),
+            r"E:\Other\lib.dll"
+        );
         // 前缀相同但不是子目录：`D:\AppExtra` 不是 `D:\App` 的子目录
         assert_eq!(
             relative_to(r"D:\App", r"D:\AppExtra\lib.dll"),
@@ -617,7 +638,10 @@ mod tests {
     #[test]
     fn relative_to_handles_non_ascii_paths() {
         assert_eq!(relative_to(r"D:\程序", r"D:\程序\库.dll"), r"库.dll");
-        assert_eq!(relative_to(r"D:\程序", r"D:\其他\库.dll"), r"D:\其他\库.dll");
+        assert_eq!(
+            relative_to(r"D:\程序", r"D:\其他\库.dll"),
+            r"D:\其他\库.dll"
+        );
     }
 
     /// 自动排除项 = 待合并程序集（相对化）+ 主程序备份

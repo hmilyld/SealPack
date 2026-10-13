@@ -27,7 +27,10 @@ impl Settings {
         match serde_json::from_str::<Settings>(&text) {
             Ok(settings) => settings,
             Err(err) => {
-                eprintln!("设置文件 {} 解析失败，已回退到默认设置：{err}", file.display());
+                eprintln!(
+                    "设置文件 {} 解析失败，已回退到默认设置：{err}",
+                    file.display()
+                );
                 Self::default()
             }
         }

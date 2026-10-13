@@ -238,17 +238,16 @@ pub async fn install(
                 0,
                 "正在安装（可能弹出管理员授权，请选择「是」）…",
             );
-            run_installer(&archive, args, &target).await.map_err(|err| {
-                if source.failure_hint.is_empty() {
-                    return err;
-                }
-                // 把「要管理员授权」这句话接到真实错误后面，而不是各写各的 ——
-                // 用户看到「错误码 2」完全不知道该干嘛，看到它才知道该去批准 UAC。
-                anyhow::anyhow!(
-                    "{err}。{hint}",
-                    hint = source.failure_hint
-                )
-            })?;
+            run_installer(&archive, args, &target)
+                .await
+                .map_err(|err| {
+                    if source.failure_hint.is_empty() {
+                        return err;
+                    }
+                    // 把「要管理员授权」这句话接到真实错误后面，而不是各写各的 ——
+                    // 用户看到「错误码 2」完全不知道该干嘛，看到它才知道该去批准 UAC。
+                    anyhow::anyhow!("{err}。{hint}", hint = source.failure_hint)
+                })?;
         }
     }
 
@@ -257,7 +256,9 @@ pub async fn install(
         bail!(
             "下载与安装都已完成，但没有在 {} 找到 {}。请尝试重新下载，或改为手动指定路径。",
             target.display(),
-            exe.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default()
+            exe.file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default()
         );
     }
 
@@ -391,8 +392,8 @@ pub fn is_cached(cache_dir: &Path, source: &ToolSource) -> bool {
 /// 这个风险由「来源固定 + SHA-256 固定校验」兜住：拿到的东西一定是我们声明的那份，
 /// 不是任意第三方压缩包，所以不存在被构造出恶意重名条目的空间。
 fn extract_zip(archive: &Path, prefix: &str, target: &Path) -> Result<usize> {
-    let file = std::fs::File::open(archive)
-        .with_context(|| format!("无法打开 {}", archive.display()))?;
+    let file =
+        std::fs::File::open(archive).with_context(|| format!("无法打开 {}", archive.display()))?;
     let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file))
         .context("压缩包格式不正确，可能是下载不完整")?;
 
@@ -423,10 +424,9 @@ fn extract_zip(archive: &Path, prefix: &str, target: &Path) -> Result<usize> {
         };
 
         let out = target.join(base);
-        let mut sink = std::fs::File::create(&out)
-            .with_context(|| format!("无法写入 {}", out.display()))?;
-        std::io::copy(&mut entry, &mut sink)
-            .with_context(|| format!("解压 {name} 失败"))?;
+        let mut sink =
+            std::fs::File::create(&out).with_context(|| format!("无法写入 {}", out.display()))?;
+        std::io::copy(&mut entry, &mut sink).with_context(|| format!("解压 {name} 失败"))?;
         written += 1;
     }
 
@@ -515,14 +515,7 @@ fn human(bytes: u64) -> String {
 ///
 /// 收 `Option` 而不是引用：安装流程本身不依赖 Tauri，
 /// 少了这个依赖，整条「下载 → 校验 → 解压」链路才能在单测里被真实跑一遍。
-fn emit(
-    app: Option<&AppHandle>,
-    key: &str,
-    phase: &str,
-    received: u64,
-    total: u64,
-    message: &str,
-) {
+fn emit(app: Option<&AppHandle>, key: &str, phase: &str, received: u64, total: u64, message: &str) {
     let Some(app) = app else { return };
     let _ = app.emit(
         EVENT_PROGRESS,
@@ -545,15 +538,10 @@ mod tests {
     #[test]
     fn every_spec_has_a_source() {
         for spec in crate::tools::TOOL_SPECS.iter() {
-            let source = source_of(spec.key)
-                .unwrap_or_else(|| panic!("{} 缺少下载来源声明", spec.key));
+            let source =
+                source_of(spec.key).unwrap_or_else(|| panic!("{} 缺少下载来源声明", spec.key));
             assert!(!source.url.is_empty(), "{} 的下载地址为空", spec.key);
-            assert_eq!(
-                source.sha256.len(),
-                64,
-                "{} 的 SHA-256 长度不对",
-                spec.key
-            );
+            assert_eq!(source.sha256.len(), 64, "{} 的 SHA-256 长度不对", spec.key);
             assert!(source.sha256.chars().all(|c| c.is_ascii_hexdigit()));
             assert!(source.size > 0, "{} 的期望大小未填写", spec.key);
             // 落位目录必须与工具规格指向同一处，否则装完仍然「未找到」
@@ -598,7 +586,10 @@ mod tests {
     #[test]
     fn install_dir_follows_relative_path() {
         let spec = spec_of("iscc").unwrap();
-        assert_eq!(install_dir(Path::new("root"), spec), PathBuf::from("root/Inno"));
+        assert_eq!(
+            install_dir(Path::new("root"), spec),
+            PathBuf::from("root/Inno")
+        );
 
         let spec = spec_of("ilmerge").unwrap();
         assert_eq!(
@@ -610,7 +601,9 @@ mod tests {
     #[test]
     fn archive_name_ignores_query_and_path() {
         assert_eq!(
-            archive_name("https://api.nuget.org/v3-flatcontainer/ilmerge/3.0.41/ilmerge.3.0.41.nupkg"),
+            archive_name(
+                "https://api.nuget.org/v3-flatcontainer/ilmerge/3.0.41/ilmerge.3.0.41.nupkg"
+            ),
             "ilmerge.3.0.41.nupkg"
         );
         assert_eq!(
@@ -704,10 +697,7 @@ mod tests {
     /// 包内条目带 `..` 时不能写到目标目录之外
     #[test]
     fn refuses_to_escape_the_target_directory() {
-        let zip = build_zip(&[
-            ("../../evil.exe", b"MZ"),
-            ("Confuser.CLI.exe", b"MZ"),
-        ]);
+        let zip = build_zip(&[("../../evil.exe", b"MZ"), ("Confuser.CLI.exe", b"MZ")]);
         let archive = write_temp("traversal.zip", &zip);
         let root = std::env::temp_dir().join("sealpack-download-test/traversal");
         let target = root.join("out");
@@ -823,7 +813,9 @@ mod tests {
         let count = std::fs::read_dir(tools.join("ConfuserEx")).unwrap().count();
         assert_eq!(count, 16, "解出的文件数与压缩包不一致");
         assert_eq!(
-            std::fs::metadata(cache.join("ConfuserEx-CLI.zip")).unwrap().len(),
+            std::fs::metadata(cache.join("ConfuserEx-CLI.zip"))
+                .unwrap()
+                .len(),
             source_of("confuser").unwrap().size
         );
 

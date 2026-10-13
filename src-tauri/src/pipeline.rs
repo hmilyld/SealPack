@@ -76,14 +76,21 @@ async fn run_merge(
     require_exe(project)?;
 
     if project.merge_dlls.is_empty() {
-        return Ok(StageOutcome::skipped(Stage::Merge, "未勾选需要合并的程序集，已跳过合并"));
+        return Ok(StageOutcome::skipped(
+            Stage::Merge,
+            "未勾选需要合并的程序集，已跳过合并",
+        ));
     }
     if !toolchain.ilmerge.is_file() {
         bail!("未找到 ILMerge：{}", toolchain.ilmerge.display());
     }
 
     let backup = backup_once(project)?;
-    emit_system(app, Stage::Merge, format!("已备份主程序 → {}", backup.display()));
+    emit_system(
+        app,
+        Stage::Merge,
+        format!("已备份主程序 → {}", backup.display()),
+    );
 
     // ILMerge /out:<主程序> <主程序> <待合并程序集...>
     let mut args: Vec<String> = vec![format!("/out:{}", project.exe_file)];
@@ -100,14 +107,22 @@ async fn run_merge(
     .await?;
 
     if code != 0 {
-        return Ok(StageOutcome::failed(Stage::Merge, Some(code), "ILMerge 执行失败，请查看日志"));
+        return Ok(StageOutcome::failed(
+            Stage::Merge,
+            Some(code),
+            "ILMerge 执行失败，请查看日志",
+        ));
     }
 
     // 合并后原调试符号已失效
     let pdb = Path::new(&project.root_path).join(format!("{}.pdb", project.exe_stem()));
     if pdb.is_file() {
         let _ = std::fs::remove_file(&pdb);
-        emit_system(app, Stage::Merge, format!("已清理调试符号 {}", pdb.display()));
+        emit_system(
+            app,
+            Stage::Merge,
+            format!("已清理调试符号 {}", pdb.display()),
+        );
     }
 
     Ok(StageOutcome::ok(
@@ -133,12 +148,20 @@ async fn run_encrypt(
     }
 
     let backup = backup_once(project)?;
-    emit_system(app, Stage::Encrypt, format!("已备份主程序 → {}", backup.display()));
+    emit_system(
+        app,
+        Stage::Encrypt,
+        format!("已备份主程序 → {}", backup.display()),
+    );
 
     let config_path = work_dir.join("encrypt.crproj");
     let rendered = template::render(&project.encrypt_config, &template::context(project));
     std::fs::write(&config_path, rendered).context("无法写入临时加密配置")?;
-    emit_system(app, Stage::Encrypt, format!("已生成临时配置 {}", config_path.display()));
+    emit_system(
+        app,
+        Stage::Encrypt,
+        format!("已生成临时配置 {}", config_path.display()),
+    );
 
     let args = vec!["-n".to_string(), config_path.to_string_lossy().to_string()];
     let code = exec_streaming(
@@ -153,7 +176,11 @@ async fn run_encrypt(
     let _ = std::fs::remove_file(&config_path);
 
     if code != 0 {
-        return Ok(StageOutcome::failed(Stage::Encrypt, Some(code), "ConfuserEx 执行失败，请查看日志"));
+        return Ok(StageOutcome::failed(
+            Stage::Encrypt,
+            Some(code),
+            "ConfuserEx 执行失败，请查看日志",
+        ));
     }
 
     Ok(StageOutcome::ok(
@@ -202,7 +229,11 @@ async fn run_package(
     let rendered = template::render(&project.package_script, &template::context(project));
     // Inno Setup 6 支持带 BOM 的 UTF-8 脚本
     write_utf8_bom(&script_path, &rendered)?;
-    emit_system(app, Stage::Package, format!("已生成临时脚本 {}", script_path.display()));
+    emit_system(
+        app,
+        Stage::Package,
+        format!("已生成临时脚本 {}", script_path.display()),
+    );
 
     let output_dir = Path::new(&project.output_dir);
     // 打包前先记下产出目录的样子，事后靠它找出「这次新产生/被改写的文件」。
@@ -217,7 +248,11 @@ async fn run_package(
     let _ = std::fs::remove_file(&isl_dst);
 
     if code != 0 {
-        return Ok(StageOutcome::failed(Stage::Package, Some(code), "Inno Setup 编译失败，请查看日志"));
+        return Ok(StageOutcome::failed(
+            Stage::Package,
+            Some(code),
+            "Inno Setup 编译失败，请查看日志",
+        ));
     }
 
     let mut artifacts: Vec<String> = changed_files(output_dir, &before, started)
@@ -246,7 +281,11 @@ async fn run_package(
             .collect();
 
         if files.is_empty() {
-            emit_system(app, Stage::Package, "⚠ 没有找到可校验的产出文件，已跳过校验清单");
+            emit_system(
+                app,
+                Stage::Package,
+                "⚠ 没有找到可校验的产出文件，已跳过校验清单",
+            );
         } else {
             let manifest = output_dir.join(format!("checksums-{algo}.txt"));
             match hash::write_manifest(&algo, &files, &manifest) {
@@ -418,7 +457,11 @@ async fn exec_streaming(
     cwd: &Path,
 ) -> Result<i32> {
     let shown: Vec<String> = args.iter().map(|a| mask_secret(a)).collect();
-    emit_system(app, stage, format!("$ {} {}", program.display(), shown.join(" ")));
+    emit_system(
+        app,
+        stage,
+        format!("$ {} {}", program.display(), shown.join(" ")),
+    );
 
     let mut command = tokio::process::Command::new(program);
     command
@@ -463,7 +506,11 @@ where
         }
         let _ = app.emit(
             EVENT_LOG,
-            LogEvent { stage, stream: stream.to_string(), line },
+            LogEvent {
+                stage,
+                stream: stream.to_string(),
+                line,
+            },
         );
     }
 }
@@ -483,14 +530,22 @@ fn decode_line(bytes: &[u8]) -> String {
 fn emit_system(app: &AppHandle, stage: Stage, line: impl Into<String>) {
     let _ = app.emit(
         EVENT_LOG,
-        LogEvent { stage, stream: "system".into(), line: line.into() },
+        LogEvent {
+            stage,
+            stream: "system".into(),
+            line: line.into(),
+        },
     );
 }
 
 fn emit_stage(app: &AppHandle, stage: Stage, status: &str, message: impl Into<String>) {
     let _ = app.emit(
         EVENT_STAGE,
-        StageEvent { stage, status: status.into(), message: message.into() },
+        StageEvent {
+            stage,
+            status: status.into(),
+            message: message.into(),
+        },
     );
 }
 

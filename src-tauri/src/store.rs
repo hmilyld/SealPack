@@ -26,10 +26,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn resolve(app: &tauri::AppHandle) -> Result<Self> {
-        let data_dir = app
-            .path()
-            .app_data_dir()
-            .context("无法定位应用数据目录")?;
+        let data_dir = app.path().app_data_dir().context("无法定位应用数据目录")?;
 
         let projects_dir = data_dir.join("projects");
         let work_root = data_dir.join("work");
@@ -43,10 +40,7 @@ impl AppState {
         clean_stale_work(&work_root);
 
         // 资源目录：打包后位于 resource_dir，开发期回退到 CARGO_MANIFEST_DIR
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .context("无法定位资源目录")?;
+        let resource_dir = app.path().resource_dir().context("无法定位资源目录")?;
 
         Ok(Self {
             projects_dir: strip_verbatim(projects_dir),
@@ -75,7 +69,9 @@ fn locate_dir(resource_dir: &Path, name: &str) -> PathBuf {
     let candidates = [
         resource_dir.join(name),
         resource_dir.join("resources").join(name),
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources").join(name),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(name),
     ];
     candidates
         .iter()
@@ -124,7 +120,10 @@ pub fn list_projects(dir: &Path) -> ProjectList {
     let mut unreadable = Vec::new();
 
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return ProjectList { projects, unreadable };
+        return ProjectList {
+            projects,
+            unreadable,
+        };
     };
 
     for entry in entries.flatten() {
@@ -148,7 +147,10 @@ pub fn list_projects(dir: &Path) -> ProjectList {
     }
 
     projects.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    ProjectList { projects, unreadable }
+    ProjectList {
+        projects,
+        unreadable,
+    }
 }
 
 /// 清理临时工作目录里陈旧的工程子目录，返回删掉的个数。
@@ -239,7 +241,9 @@ mod tests {
     #[test]
     fn strip_verbatim_normalizes_paths() {
         assert_eq!(
-            strip_verbatim(PathBuf::from(r"\\?\D:\Codespace\SealPack\tools\ILMerge\ILMerge.exe")),
+            strip_verbatim(PathBuf::from(
+                r"\\?\D:\Codespace\SealPack\tools\ILMerge\ILMerge.exe"
+            )),
             PathBuf::from(r"D:\Codespace\SealPack\tools\ILMerge\ILMerge.exe"),
         );
         assert_eq!(
@@ -278,7 +282,10 @@ mod tests {
         let list = list_projects(&dir);
         // 按名称排序（忽略大小写）
         assert_eq!(
-            list.projects.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(),
+            list.projects
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["alpha", "Beta"]
         );
         assert_eq!(list.unreadable, vec!["broken.json"]);

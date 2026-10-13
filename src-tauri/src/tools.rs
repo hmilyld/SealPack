@@ -102,7 +102,12 @@ struct Located {
 /// 第三级是必需的。应用装在 `Program Files` 下时内置目录是只读的，
 /// 自动下载的工具只能落在用户目录里，而 `default_path` 描述的是内置位置 ——
 /// 少了这一级，下载成功之后界面依然会显示「未找到」。
-fn locate(spec: &ToolSpec, bundled_dir: &Path, download_dir: &Path, settings: &Settings) -> Located {
+fn locate(
+    spec: &ToolSpec,
+    bundled_dir: &Path,
+    download_dir: &Path,
+    settings: &Settings,
+) -> Located {
     let bundled = default_path(bundled_dir, spec);
     let custom = resolve_override(settings.override_for(spec.key), &bundled);
 
@@ -322,7 +327,9 @@ mod tests {
         // 只有下载目录有 → 用下载目录
         std::fs::write(downloaded.join("Inno").join("ISCC.exe"), b"x").unwrap();
         assert_eq!(
-            Toolchain::resolve(&bundled, &downloaded, &settings).unwrap().iscc,
+            Toolchain::resolve(&bundled, &downloaded, &settings)
+                .unwrap()
+                .iscc,
             downloaded.join("Inno").join("ISCC.exe")
         );
         let s = status(&bundled, &downloaded, &cache, &settings);
@@ -332,7 +339,9 @@ mod tests {
         // 内置也有 → 内置优先
         std::fs::write(bundled.join("Inno").join("ISCC.exe"), b"x").unwrap();
         assert_eq!(
-            Toolchain::resolve(&bundled, &downloaded, &settings).unwrap().iscc,
+            Toolchain::resolve(&bundled, &downloaded, &settings)
+                .unwrap()
+                .iscc,
             bundled.join("Inno").join("ISCC.exe")
         );
 
@@ -343,7 +352,9 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(
-            Toolchain::resolve(&bundled, &downloaded, &settings).unwrap().iscc,
+            Toolchain::resolve(&bundled, &downloaded, &settings)
+                .unwrap()
+                .iscc,
             PathBuf::from(r"D:\Custom\ISCC.exe")
         );
         let s = status(&bundled, &downloaded, &cache, &settings);

@@ -41,8 +41,7 @@ fn to_hex(bytes: &[u8]) -> String {
 /// 不把整个文件读进内存。
 fn digest_with<D: Digest + Default>(path: &Path) -> Result<String> {
     let mut hasher = D::default();
-    let mut file =
-        File::open(path).with_context(|| format!("无法读取 {}", path.display()))?;
+    let mut file = File::open(path).with_context(|| format!("无法读取 {}", path.display()))?;
     let mut buf = vec![0u8; 64 * 1024];
     loop {
         let read = file
@@ -148,7 +147,10 @@ mod tests {
 
         let mut hasher = Sha256::default();
         hasher.update(&data);
-        assert_eq!(file_digest("sha256", &file).unwrap(), to_hex(&hasher.finalize()));
+        assert_eq!(
+            file_digest("sha256", &file).unwrap(),
+            to_hex(&hasher.finalize())
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -173,7 +175,9 @@ mod tests {
         write_manifest("sha256", &[file.clone()], &manifest).unwrap();
         let body = std::fs::read_to_string(&manifest).unwrap();
 
-        assert!(body.contains("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  Setup.exe"));
+        assert!(body.contains(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  Setup.exe"
+        ));
         assert!(body.contains("SHA-256"));
 
         let _ = std::fs::remove_dir_all(&dir);
