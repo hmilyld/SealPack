@@ -1423,11 +1423,23 @@ function stepSub(id: StepId): string {
   }
 }
 
+/**
+ * 刷新所有「摘要」文案。
+ *
+ * 两处摘要读的是**同一份数据**（勾选了几个程序集 / 启用了几项保护 / 排除了几项）：
+ *   · 步骤条每步下面那一行（`stepSub`）
+ *   · 执行页每个阶段那一行（`stageSummary`）
+ *
+ * 所以必须一起刷新。之前只刷了步骤条 —— 执行页那几行是工程首次渲染时算好的，
+ * 之后无论怎么改选项都不动，于是出现「每步都配好了，执行页却显示未勾选」。
+ * 这个函数是所有改动路径的统一出口，别再只更新其中一半。
+ */
 function syncStepSubs() {
   workspace.querySelectorAll<HTMLElement>("[data-step]").forEach((el) => {
     const sub = el.querySelector<HTMLElement>("[data-sub]");
     if (sub) sub.textContent = stepSub(el.dataset.step as StepId);
   });
+  updatePlanSums();
 }
 
 // ---------------------------------------------------------------- 第 1 步：主程序

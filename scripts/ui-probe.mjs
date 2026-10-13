@@ -1708,6 +1708,80 @@ check("D47", "两个口令字段都在", d47.names.join(","), (v) => String(v).i
 check("D47", "口令字段有标签关联", d47.labelled, true);
 check("D47", "非开关控件全部有标签关联", d47.unlabelled, 0);
 
+console.log("\n48) 执行页摘要必须跟着选项走（曾经停在首次渲染的快照上）");
+
+// 步骤条每步下面那行与执行页每个阶段那行读的是同一份数据，必须永远一致。
+// 曾经的 bug：只有步骤条会随改动刷新，执行页那三行是工程首次渲染时算好的，
+// 于是「每步都配好了，执行页却显示未勾选 / 未启用 / 排除 0 项」。
+const READ_SUMMARIES = `(() => {
+  const txt = (sel) => document.querySelector(sel)?.textContent?.trim() ?? "";
+  const num = (s, re) => { const m = s.match(re); return m ? Number(m[1]) : null; };
+  const mergeStep = txt('.step[data-step="merge"] [data-sub]');
+  const mergePlan = txt('[data-stage="merge"] [data-plan-sum]');
+  const encStep = txt('.step[data-step="encrypt"] [data-sub]');
+  const encPlan = txt('[data-stage="encrypt"] [data-plan-sum]');
+  const pkgStep = txt('.step[data-step="package"] [data-sub]');
+  const pkgPlan = txt('[data-stage="package"] [data-plan-sum]');
+  return {
+    mergeStep, mergePlan, encStep, encPlan, pkgStep, pkgPlan,
+    mergeStepN: num(mergeStep, /(\\d+) 个程序集/),
+    mergePlanN: num(mergePlan, /合并 (\\d+) 个程序集/),
+    pkgStepN: num(pkgStep, /排除 (\\d+) 项/),
+    pkgPlanN: num(pkgPlan, /排除 (\\d+) 项/),
+  };
+})()`;
+
+await goto("/preview.html?skin=swiss&theme=light");
+await sleep(600);
+const beforeToggle = await evaluate(READ_SUMMARIES);
+
+// 在合并步骤里多勾一个文件。这一步是必需的 —— 刚加载时执行页本来就是对的，
+// 只有「改过之后再看」才能暴露它没跟着刷新。
+await evaluate(`document.querySelector('.step[data-step="merge"]').click(); true`);
+await sleep(900);
+const toggled = await evaluate(`(() => {
+  const li = [...document.querySelectorAll(".tree li")].find(
+    (el) => el.querySelector(".tree-nm")?.textContent?.trim() === "ICSharpCode.SharpZipLib.dll",
+  );
+  li?.querySelector(".tree-cb")?.click();
+  return !!li;
+})()`);
+await sleep(800);
+const afterToggle = await evaluate(READ_SUMMARIES);
+
+results.D48 = { toggled, beforeToggle, afterToggle };
+check("D48", "找到并点击了文件树里的目标文件", toggled, true);
+check(
+  "D48",
+  "勾选后步骤条计数确实 +1（说明测试动作生效）",
+  [beforeToggle.mergeStepN, afterToggle.mergeStepN],
+  (v) => v[0] !== null && v[1] === v[0] + 1,
+);
+check(
+  "D48",
+  "执行页的合并计数与步骤条一致（核心：改完就刷新）",
+  [afterToggle.mergeStepN, afterToggle.mergePlanN],
+  (v) => v[0] !== null && v[0] === v[1],
+);
+check(
+  "D48",
+  "执行页的排除项计数与步骤条一致",
+  [afterToggle.pkgStepN, afterToggle.pkgPlanN],
+  (v) => v[0] !== null && v[0] === v[1],
+);
+check(
+  "D48",
+  "加密：步骤条说启用了保护时，执行页不能还说「未启用」",
+  [afterToggle.encStep, afterToggle.encPlan],
+  (v) => !(String(v[0]).includes("项保护") && String(v[1]).includes("未启用")),
+);
+check(
+  "D48",
+  "加密：步骤条说未启用时，执行页也要说未启用",
+  [afterToggle.encStep, afterToggle.encPlan],
+  (v) => !(String(v[0]).includes("未启用") && !String(v[1]).includes("未启用")),
+);
+
 // ---------------------------------------------------------------- 汇总
 
 console.log("\n================ 探针结果 ================");
