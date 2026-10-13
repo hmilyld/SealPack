@@ -235,6 +235,24 @@ pub struct PackageOptions {
     /// 每张盘放几片
     pub slices_per_disk: u32,
 
+    /// 应用标识（Inno 的 AppId）。
+    ///
+    /// 这一项决定「重新打包后是覆盖升级还是全新安装」：Inno 靠 AppId 认出一个应用
+    /// 之前装过没有，AppId 变了就当成另一个应用，于是两个版本会并存。
+    ///
+    /// 所以它**不能**用工程 ID —— 那是「新建工程」时随机生成的，同一个 exe 换个工程
+    /// 打包就会得到不同的 AppId。默认值由主程序的产品身份推导（见
+    /// `commands::detect_app_id`），选主程序时自动填入，也可以手工改。
+    ///
+    /// 留空表示回退到工程 ID（仅用于没有主程序时的兜底，不推荐）。
+    ///
+    /// 这是**后来新增**的字段，所以它带 `#[serde(default)]` —— 没有它的工程文件
+    /// 全都是合法的，不能因为缺这一个字段就变成不可读。
+    /// 注意这与「不做旧格式兼容」并不矛盾：那条规则针对的是改坏了的字段，
+    /// 这里处理的是 schema 的正常演进。以后每加一个选项都照此办理。
+    #[serde(default)]
+    pub app_id: String,
+
     /// 安装包加密：no | yes（加密 [Files] 内容）| full（整个安装包加密，必须命令行给口令）
     pub encryption: String,
     /// PBKDF2-HMAC-SHA256 的迭代次数（口令派生密钥用）
@@ -274,6 +292,8 @@ impl Default for PackageOptions {
             packaging_mode: packaging_mode_default(),
             disk_slice_size: 0,
             slices_per_disk: 1,
+            // 空 = 由主程序推导（选主程序时前端会填入推导结果）
+            app_id: String::new(),
             encryption: encryption_default(),
             kdf_iterations: kdf_iterations_default(),
             sign_tool: String::new(),

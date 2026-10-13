@@ -13,6 +13,17 @@ pub fn render(template: &str, vars: &[(&str, String)]) -> String {
 pub fn context(project: &Project) -> Vec<(&'static str, String)> {
     vec![
         ("id", project.id.clone()),
+        // 应用标识：决定 Inno 把这次安装看成「升级已有应用」还是「另一个新应用」。
+        // 留空时退回工程 ID —— 那只是没有主程序时的兜底，不是推荐值：
+        // 工程 ID 每个工程都不同，会导致同一个 exe 每次打包都被当成新应用。
+        (
+            "appId",
+            if project.package_options.app_id.trim().is_empty() {
+                project.id.clone()
+            } else {
+                project.package_options.app_id.trim().to_string()
+            },
+        ),
         ("name", project.name.clone()),
         ("root", project.root_path.clone()),
         ("exe", project.exe_name()),
@@ -29,6 +40,10 @@ pub fn context(project: &Project) -> Vec<(&'static str, String)> {
 pub fn placeholder_help() -> Vec<(&'static str, &'static str)> {
     vec![
         ("${id}", "工程标识（GUID）"),
+        (
+            "${appId}",
+            "应用标识（AppId）：决定覆盖升级还是全新安装，默认由主程序推导",
+        ),
         ("${name}", "工程名称"),
         ("${root}", "主程序所在目录"),
         ("${exe}", "主程序文件名（含扩展名）"),

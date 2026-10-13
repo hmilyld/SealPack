@@ -55,6 +55,8 @@ const packageOptions = {
   packagingMode: "single",
   diskSliceSize: 0,
   slicesPerDisk: 1,
+  // 空 = 由主程序推导。预览里点了「选择主程序」会被 mock 的 exe_app_id 填上
+  appId: "",
   encryption: "yes",
   kdfIterations: 220000,
   signTool: "",
@@ -306,6 +308,7 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
         },
   placeholders: () => [
     ["${id}", "工程标识（GUID）"],
+    ["${appId}", "应用标识（AppId）：决定覆盖升级还是全新安装"],
     ["${name}", "工程名称"],
     ["${root}", "主程序所在目录"],
     ["${exe}", "主程序文件名（含扩展名）"],
@@ -363,6 +366,9 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
   },
   scan_tree: () => tree,
   exe_version: () => "1.4.2.0",
+  // 与 Rust 侧同义：由主程序推导的稳定应用标识。预览里给固定值，
+  // 这样每次点「选择主程序」得到的结果都一样（便于断言与肉眼比对）。
+  exe_app_id: () => "6f3a1c2e-8b47-5d91-9a04-2c7be5f0d318",
   render_encrypt_config: (args) =>
     renderEncryptConfig({ ...encryptOptions, ...((args.options ?? {}) as object) }),
   render_package_script: (args) =>

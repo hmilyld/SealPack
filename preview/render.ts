@@ -214,7 +214,9 @@ export function renderPackageScript(o: OptionBag): string {
   out += '#define MyAppPublisher "hmilyld"\n';
   out += '#define MyAppURL "https://hmilyld.com/"\n\n';
   out += "[Setup]\n";
-  out += "AppId={{${id}\n";
+  // AppId 决定覆盖升级还是全新安装；取自「应用标识」选项，不是工程 ID。
+  // 末尾的 `}` 是字面量：`{{` 转义成一个 `{`，于是 AppId 形如 `{GUID}`。
+  out += "AppId={{${appId}}\n";
   out += "AppName={#MyAppName}\n";
   out += "AppVersion={#MyAppVersion}\n";
   out += "AppPublisher={#MyAppPublisher}\n";

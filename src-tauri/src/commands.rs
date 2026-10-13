@@ -311,14 +311,15 @@ pub async fn placeholders() -> Result<Vec<(String, String)>, String> {
         .collect())
 }
 
-// ---------------------------------------------------------------- 版本号探测
+// ---------------------------------------------------------------- 主程序信息探测
 
+/// 读出可执行文件的版本资源块（`GetFileVersionInfo` 的原始字节）。
+///
+/// 版本号与「应用标识」都要从这里取，所以抽出来共用一份 WinAPI 样板。
 #[cfg(windows)]
-fn detect_version(path: &str) -> Option<String> {
+fn read_version_block(path: &str) -> Option<Vec<u8>> {
     use std::ffi::c_void;
-    use windows_sys::Win32::Storage::FileSystem::{
-        GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW,
-    };
+    use windows_sys::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW};
 
     if !Path::new(path).is_file() {
         return None;
@@ -337,41 +338,265 @@ fn detect_version(path: &str) -> Option<String> {
         if GetFileVersionInfoW(wide.as_ptr(), 0, size, buffer.as_mut_ptr() as *mut c_void) == 0 {
             return None;
         }
+        Some(buffer)
+    }
+}
 
-        let sub: Vec<u16> = "\\".encode_utf16().chain(std::iter::once(0)).collect();
-        let mut ptr: *mut c_void = std::ptr::null_mut();
-        let mut len: u32 = 0;
+#[cfg(windows)]
+fn query_bytes(buffer: &[u8], sub: &str) -> Option<(*const std::ffi::c_void, u32)> {
+    use std::ffi::c_void;
+    use windows_sys::Win32::Storage::FileSystem::VerQueryValueW;
+
+    let sub_w: Vec<u16> = sub.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut ptr: *mut c_void = std::ptr::null_mut();
+    let mut len: u32 = 0;
+    unsafe {
         if VerQueryValueW(
             buffer.as_ptr() as *const c_void,
-            sub.as_ptr(),
+            sub_w.as_ptr(),
             &mut ptr,
             &mut len,
         ) == 0
+            || ptr.is_null()
         {
             return None;
         }
-        // VS_FIXEDFILEINFO 至少需要 24 字节才能取到 ProductVersion
-        if ptr.is_null() || len < 24 {
-            return None;
-        }
-
-        let base = ptr as *const u32;
-        let ms = *base.add(4);
-        let ls = *base.add(5);
-        if ms == 0 && ls == 0 {
-            return None;
-        }
-        Some(format!(
-            "{}.{}.{}.{}",
-            ms >> 16,
-            ms & 0xFFFF,
-            ls >> 16,
-            ls & 0xFFFF
-        ))
     }
+    Some((ptr as *const c_void, len))
+}
+
+/// 取版本资源里的一个字符串字段（`ProductName` / `CompanyName` / `OriginalFilename`…）。
+///
+/// 字符串字段挂在 `\StringFileInfo\<语言><代码页>\` 下面，语言/代码页要先从
+/// `\VarFileInfo\Translation` 里问出来。
+#[cfg(windows)]
+fn query_version_string(buffer: &[u8], field: &str) -> Option<String> {
+    let (ptr, len) = query_bytes(buffer, "\\VarFileInfo\\Translation")?;
+    if len < 4 {
+        return None;
+    }
+    // 取第一条语言/代码页；多语言资源里通常第一条就是主语言
+    let (lang, codepage) = unsafe {
+        let words = std::slice::from_raw_parts(ptr as *const u16, 2);
+        (words[0], words[1])
+    };
+
+    let sub = format!("\\StringFileInfo\\{lang:04x}{codepage:04x}\\{field}");
+    let (ptr, len) = query_bytes(buffer, &sub)?;
+    let chars = unsafe { std::slice::from_raw_parts(ptr as *const u16, len as usize) };
+    let text = String::from_utf16_lossy(chars);
+    let text = text.trim_end_matches('\0').trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+/// 非 Windows 平台上拿不到版本资源：退化成「只用文件名推导」，
+/// 仍然确定，只是分辨力差一些（`cargo test` 与 `cargo check` 在别的平台上照样能跑）。
+#[cfg(not(windows))]
+fn read_version_block(_path: &str) -> Option<Vec<u8>> {
+    None
+}
+
+/// 由主程序推导一个**稳定**的应用标识（Inno 的 AppId）。
+///
+/// 为什么不能拿工程 ID 当 AppId：工程 ID 是「新建工程」时随机生成的 UUID，
+/// 同一个 exe 换个工程打包就会得到不同的 AppId，Inno 于是把它当成另一个应用，
+/// 结果是**全新安装、两个版本并存**，而不是覆盖升级。
+///
+/// 所以这里从主程序自身的**产品身份**推导：版本信息里的
+/// `ProductName` + `CompanyName` + `OriginalFilename`（拿不到就退到文件名）。
+/// 这三样都不含版本号与编译日期，因此同一个产品重新编译、重新打包、换台机器打包，
+/// 都会得到同一个 AppId。
+///
+/// 反过来，`ProductName` 或 `CompanyName` 改了就是「换了产品身份」，AppId 会跟着变 ——
+/// 这是有意的：那种情况下本来就该当成另一个应用。
+pub fn detect_app_id(path: &str) -> String {
+    let block = read_version_block(path);
+
+    let pick = |field: &str| -> Option<String> {
+        block
+            .as_deref()
+            .and_then(|b| query_version_string(b, field))
+    };
+
+    let stem = Path::new(path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    // 全部小写：产品名只改了个大小写不该被当成另一个应用
+    app_id_from_identity(&app_identity(
+        &pick("ProductName").unwrap_or_default(),
+        &pick("CompanyName").unwrap_or_default(),
+        &pick("OriginalFilename").unwrap_or_else(|| stem.clone()),
+    ))
+}
+
+/// 把「产品身份」拼成一个字符串，作为推导 AppId 的输入。
+///
+/// 抽成独立函数是为了能直接单测：它必须满足「同一份主程序每次结果相同、
+/// 不同产品结果不同、只改大小写不算换了产品」。
+fn app_identity(product: &str, company: &str, original: &str) -> String {
+    // 用 \x1f 分隔，避免「A B」+「C」与「A」+「B C」撞成同一个身份
+    format!(
+        "{}\u{1f}{}\u{1f}{}",
+        product.trim().to_lowercase(),
+        company.trim().to_lowercase(),
+        original.trim().to_lowercase()
+    )
+}
+
+/// 把身份字符串确定性地映射成一个 UUIDv5 形状的标识。
+///
+/// 用哈希而不是直接用产品名：Inno 会把它写进注册表的 `Uninstall\<AppId>_is1`，
+/// 产品名里的空格、中文、反斜杠都可能出问题；哈希成 GUID 就没有这些顾虑，
+/// 而且一眼能看出「这是个标识」而不是「谁的名字」。
+fn app_id_from_identity(identity: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"sealpack/app-id/v1\0");
+    hasher.update(identity.as_bytes());
+    let digest = hasher.finalize();
+
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    // 摆成合法的 UUIDv5 形状（版本位 = 5、变体位 = 10xx）：
+    // 很多工具会校验这两处，随便一段十六进制虽然也能用，但看着不像个标识
+    bytes[6] = (bytes[6] & 0x0F) | 0x50;
+    bytes[8] = (bytes[8] & 0x3F) | 0x80;
+
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// 前端的「选择主程序」会调它，把结果填进打包选项的「应用标识」。
+#[tauri::command]
+pub async fn exe_app_id(path: String) -> Result<String, String> {
+    if !Path::new(&path).is_file() {
+        return Err(format!("主程序不存在：{path}"));
+    }
+    Ok(detect_app_id(&path))
+}
+
+#[cfg(windows)]
+fn detect_version(path: &str) -> Option<String> {
+    let buffer = read_version_block(path)?;
+    let (ptr, len) = query_bytes(&buffer, "\\")?;
+    // VS_FIXEDFILEINFO 至少需要 24 字节才能取到 ProductVersion
+    if len < 24 {
+        return None;
+    }
+    let base = ptr as *const u32;
+    let (ms, ls) = unsafe { (*base.add(4), *base.add(5)) };
+    if ms == 0 && ls == 0 {
+        return None;
+    }
+    Some(format!(
+        "{}.{}.{}.{}",
+        ms >> 16,
+        ms & 0xFFFF,
+        ls >> 16,
+        ls & 0xFFFF
+    ))
 }
 
 #[cfg(not(windows))]
 fn detect_version(_path: &str) -> Option<String> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 同一个身份必须每次推导出同一个 AppId。
+    ///
+    /// 这条是整个「覆盖升级」功能的基石：只要它不稳定，重新打包就会被 Inno
+    /// 当成另一个应用，用户看到的就是「全新安装、两个版本并存」。
+    #[test]
+    fn app_id_is_deterministic() {
+        let a = app_id_from_identity("我的工具\u{1f}示例公司\u{1f}tool.exe");
+        let b = app_id_from_identity("我的工具\u{1f}示例公司\u{1f}tool.exe");
+        assert_eq!(a, b);
+    }
+
+    /// 不同产品要得到不同的 AppId，否则两个应用会互相「升级」
+    #[test]
+    fn app_id_differs_between_products() {
+        let a = app_id_from_identity("工具甲\u{1f}公司\u{1f}tool.exe");
+        let b = app_id_from_identity("工具乙\u{1f}公司\u{1f}tool.exe");
+        let c = app_id_from_identity("工具甲\u{1f}另一家公司\u{1f}tool.exe");
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+    }
+
+    /// 形状要像个 UUID：8-4-4-4-12、版本位 5、变体位 8/9/a/b。
+    /// 很多工具会校验这两处，随便一段十六进制虽然也能用，但看着不像个标识。
+    #[test]
+    fn app_id_is_uuid_shaped() {
+        let id = app_id_from_identity("x\u{1f}y\u{1f}z.exe");
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 5, "{id}");
+        assert_eq!(
+            parts.iter().map(|p| p.len()).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12],
+            "{id}"
+        );
+        assert!(
+            id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'),
+            "{id}"
+        );
+        assert!(parts[2].starts_with('5'), "版本位应为 5：{id}");
+        assert!(
+            matches!(parts[3].chars().next(), Some('8' | '9' | 'a' | 'b')),
+            "变体位应为 8/9/a/b：{id}"
+        );
+    }
+
+    /// 只改大小写、或在两端多打了空格，都不该被当成换了产品
+    #[test]
+    fn app_identity_normalizes_case_and_padding() {
+        assert_eq!(
+            app_identity("MyTool", "Acme", "tool.exe"),
+            app_identity("  mytool ", "ACME", "Tool.EXE")
+        );
+    }
+
+    /// 分隔符要真的起作用：不能让字段边界被「串味」
+    #[test]
+    fn app_identity_does_not_bleed_across_fields() {
+        assert_ne!(
+            app_identity("a b", "c", "x.exe"),
+            app_identity("a", "b c", "x.exe")
+        );
+    }
+
+    /// 拿不到版本信息时退到文件名，仍然是确定的
+    #[test]
+    fn app_id_falls_back_to_file_name() {
+        let dir = std::env::temp_dir().join("sealpack-appid-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("standalone.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+
+        let path = exe.to_string_lossy().to_string();
+        let first = detect_app_id(&path);
+        let second = detect_app_id(&path);
+        assert_eq!(first, second, "同一个文件必须得到同一个 AppId");
+        assert_eq!(first.len(), 36, "{first}");
+
+        // 换一个文件名就是另一个身份
+        let other = dir.join("another.exe");
+        std::fs::write(&other, b"MZ").unwrap();
+        assert_ne!(first, detect_app_id(&other.to_string_lossy()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

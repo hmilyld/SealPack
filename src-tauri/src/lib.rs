@@ -97,6 +97,7 @@ pub fn run() {
             commands::run_stage,
             commands::scan_tree,
             commands::exe_version,
+            commands::exe_app_id,
             commands::tool_status,
             commands::download_tool,
             commands::get_settings,

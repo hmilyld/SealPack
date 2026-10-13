@@ -34,6 +34,8 @@ export const api = {
     invoke<StageOutcome>("run_stage", { project, stage }),
   scanTree: (root: string) => invoke<FileNode>("scan_tree", { root }),
   exeVersion: (path: string) => invoke<string>("exe_version", { path }),
+  /** 由主程序推导稳定的应用标识（Inno 的 AppId），决定覆盖升级还是全新安装 */
+  exeAppId: (path: string) => invoke<string>("exe_app_id", { path }),
   toolStatus: () => invoke<ToolStatus>("tool_status"),
   /** 下载并安装一个外部工具，返回刷新后的工具状态 */
   downloadTool: (key: string) => invoke<ToolStatus>("download_tool", { key }),

@@ -282,7 +282,11 @@ pub fn package_script(opts: &PackageOptions) -> String {
     out.push_str("#define MyAppURL \"https://hmilyld.com/\"\n\n");
 
     out.push_str("[Setup]\n");
-    out.push_str("AppId={{${id}\n");
+    // AppId 决定「覆盖升级」还是「全新安装」：Inno 靠它认出一个应用之前装过没有。
+    // 它取自「应用标识」选项（默认由主程序的产品身份推导），**不是**工程 ID ——
+    // 工程 ID 每个工程都不一样，同一个 exe 换个工程打包就会变成另一个应用。
+    // 末尾那个 `}` 是字面量：`{{` 转义成一个 `{`，于是 AppId 形如 `{GUID}`。
+    out.push_str("AppId={{${appId}}\n");
     out.push_str("AppName={#MyAppName}\n");
     out.push_str("AppVersion={#MyAppVersion}\n");
     out.push_str("AppPublisher={#MyAppPublisher}\n");

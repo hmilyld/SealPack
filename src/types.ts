@@ -86,6 +86,8 @@ export interface PackageOptions {
   diskSliceSize: number;
   slicesPerDisk: number;
 
+  appId: string;
+
   encryption: string;
   kdfIterations: number;
 
@@ -127,6 +129,8 @@ export interface OptField {
   hint: string;
   /** 默认值：界面上标注「默认」，也是「恢复默认」的依据 */
   def: boolean | string | number;
+  /** 文本控件的占位提示。不写则回退到默认值（默认值为空时显示「留空」） */
+  placeholder?: string;
   choices?: OptChoice[];
   min?: number;
   max?: number;
@@ -876,6 +880,15 @@ export const PACKAGE_GROUPS: OptGroup[] = [
     title: "安装行为",
     note: "安装向导里给用户看什么、装完做什么。",
     fields: [
+      {
+        key: "appId",
+        kind: "text",
+        label: "应用标识（AppId）",
+        hint: "决定「重新打包后是覆盖升级还是全新安装」：Inno 靠它认出一个应用之前装过没有，它变了就会被当成另一个应用、两个版本并存。默认由主程序的产品身份（版本信息里的产品名 + 公司名 + 原始文件名）推导，同一份主程序重新编译、重新打包都会得到同一个值。换了产品名或公司名就会变 —— 那本来就该当成另一个应用。改动这一项会让已装版本被当成另一个应用。",
+        def: "",
+        placeholder: "选好主程序后自动推导，也可手工填写",
+        writes: "AppId=",
+      },
       {
         key: "desktopIcon",
         kind: "bool",

@@ -957,7 +957,7 @@ function optFieldHtml(f: OptField, value: unknown): string {
     control = `<input class="input" type="${f.secret ? "password" : "text"}" id="${id}" data-opt="${esc(
       f.key,
     )}" value="${esc(String(value))}" placeholder="${esc(
-      String(f.def) || "留空",
+      f.placeholder ?? (String(f.def) || "留空"),
     )}" spellcheck="false" />${browse}`;
   }
 
@@ -1372,7 +1372,7 @@ function goStep(id: StepId) {
   // 树是异步挂载的，此刻可能还没有，mountPicker 完成时会补一次。
   if (id === "merge") picker?.focus();
 
-  syncStepSubs();
+  syncSummaries();
 }
 
 function wireWizardNav() {
@@ -1424,22 +1424,39 @@ function stepSub(id: StepId): string {
 }
 
 /**
- * 刷新所有「摘要」文案。
+ * 刷新所有「由选项派生的界面状态」。
  *
- * 两处摘要读的是**同一份数据**（勾选了几个程序集 / 启用了几项保护 / 排除了几项）：
- *   · 步骤条每步下面那一行（`stepSub`）
- *   · 执行页每个阶段那一行（`stageSummary`）
+ * 同一份数据（勾选数量 / 启用的保护 / 排除项 / 预设命中）在界面上出现**四处**：
+ *   ① 步骤条每步下面那一行（`stepSub`）
+ *   ② 执行页每个阶段那一行（`stageSummary`）
+ *   ③ 加密 / 打包面板抬头（`syncOptionSummaries`）
+ *   ④ 预设档的高亮（`renderPresetHint`）
  *
- * 所以必须一起刷新。之前只刷了步骤条 —— 执行页那几行是工程首次渲染时算好的，
- * 之后无论怎么改选项都不动，于是出现「每步都配好了，执行页却显示未勾选」。
- * 这个函数是所有改动路径的统一出口，别再只更新其中一半。
+ * 它们都是同一份选项的投影，必须一起刷新 —— 各刷各的必然「一半新一半旧」。
+ * 曾经发生过两种：
+ *   · 执行页那三行只在工程首次渲染时算过，于是「每步都配好了，执行页却显示未勾选」；
+ *   · 预设高亮不在选项改动路径上，改一个开关后已命中的那档仍然高亮着。
+ *
+ * 所有改动路径都调用这一个函数，不要再各刷各的。
  */
-function syncStepSubs() {
+function syncSummaries() {
+  if (!current) return;
+
+  // ① 步骤条每步下面那一行
   workspace.querySelectorAll<HTMLElement>("[data-step]").forEach((el) => {
     const sub = el.querySelector<HTMLElement>("[data-sub]");
     if (sub) sub.textContent = stepSub(el.dataset.step as StepId);
   });
+
+  // ② 执行页每个阶段那一行
   updatePlanSums();
+
+  // ③ 加密 / 打包面板抬头
+  syncOptionSummaries();
+
+  // ④ 预设高亮：按当前选项重新推一遍，而不是沿用上次点的那一档
+  activePreset = inferPreset();
+  renderPresetHint();
 }
 
 // ---------------------------------------------------------------- 第 1 步：主程序
@@ -1489,6 +1506,14 @@ function wireSetupPane() {
     const version = await api.exeVersion(picked).catch(() => "");
     if (version) p.version = version;
 
+    // 应用标识决定「覆盖升级还是全新安装」，默认由主程序推导。
+    // **只在为空时填** —— 手工填过的值不能被自动推导覆盖掉，否则改过一次
+    // 就会在下次换主程序时被悄悄改回默认，已装版本又变成「另一个应用」。
+    if (!p.packageOptions.appId.trim()) {
+      const derived = await api.exeAppId(picked).catch(() => "");
+      if (derived) p.packageOptions.appId = derived;
+    }
+
     // 换到别的目录后，原先勾选的程序集已经不在扫描范围内了：它们在树里看不见，
     // 也就无法用右栏的 × 取消（那个 × 会打到不存在的节点上）。这里主动丢弃并说明。
     let dropped = 0;
@@ -1519,7 +1544,7 @@ function wireSetupPane() {
     const input = workspace.querySelector<HTMLInputElement>('[data-field="outputDir"]');
     if (input) input.value = picked;
     scheduleSave();
-    syncStepSubs();
+    syncSummaries();
   });
 
   bindAct("detect-version", async () => {
@@ -1561,21 +1586,21 @@ async function ensureTree(force = false) {
     picker = null;
     host()!.innerHTML = `<div class="picker-empty">尚未设置主程序，无法扫描目录。</div>`;
     idle();
-    syncStepSubs();
+    syncSummaries();
     return;
   }
 
   if (!force && treeNode) {
     mountPicker(treeNode);
     idle();
-    syncStepSubs();
+    syncSummaries();
     return;
   }
 
   const root = current.rootPath;
   scanning = true;
   host()!.innerHTML = `<div class="picker-empty">正在扫描目录…</div>`;
-  syncStepSubs();
+  syncSummaries();
 
   let node: FileNode | null = null;
   let error = "";
@@ -1599,12 +1624,12 @@ async function ensureTree(force = false) {
   if (!treeNode) {
     picker = null;
     again.innerHTML = `<div class="picker-empty">${esc(treeError)}</div>`;
-    syncStepSubs();
+    syncSummaries();
     return;
   }
 
   mountPicker(treeNode);
-  syncStepSubs();
+  syncSummaries();
 }
 
 /**
@@ -1622,7 +1647,7 @@ async function rescanTree() {
 
   const epoch = (scanEpoch += 1);
   scanning = true;
-  syncStepSubs();
+  syncSummaries();
 
   let node: FileNode | null = null;
   let error = "";
@@ -1640,13 +1665,13 @@ async function rescanTree() {
 
   if (!treeNode) {
     toast(`重新扫描失败：${treeError}`, "error");
-    syncStepSubs();
+    syncSummaries();
     return;
   }
 
   if (picker) picker.reload(treeNode);
   else mountPicker(treeNode);
-  syncStepSubs();
+  syncSummaries();
   toast("目录已重新扫描", "success");
 }
 
@@ -1728,7 +1753,7 @@ function mountPicker(node: FileNode) {
       if (!current) return;
       current.mergeDlls = paths;
       scheduleSave();
-      syncStepSubs();
+      syncSummaries();
       scheduleIgnoreRefresh();
       renderSelected();
     },
@@ -2036,6 +2061,10 @@ function wireOptionGroups() {
 async function syncTemplate(kind: "encrypt" | "package") {
   if (!current) return;
 
+  // 选项一变就先刷新所有摘要与预设高亮 —— 别等模板重建回来才动，
+  // 那样在 IPC 往返期间界面上是旧数字
+  syncSummaries();
+
   const generated =
     kind === "encrypt" ? current.encryptOptions.generated : current.packageOptions.generated;
 
@@ -2056,7 +2085,7 @@ async function syncTemplate(kind: "encrypt" | "package") {
 
   scheduleSave();
   renderGeneratedHints();
-  syncStepSubs();
+  syncSummaries();
 }
 
 /**
@@ -2092,7 +2121,7 @@ async function regenerateTemplate(
   if (ta) ta.value = kind === "encrypt" ? current.encryptConfig : current.packageScript;
 
   renderGeneratedHints();
-  syncStepSubs();
+  syncSummaries();
   scheduleSave();
   if (opts.successText) toast(opts.successText, "success");
 }
@@ -2121,7 +2150,7 @@ function renderCodeEditors() {
         current.packageOptions.generated = false;
       }
       renderGeneratedHints();
-      syncStepSubs();
+      syncSummaries();
       scheduleSave();
     };
 
@@ -2207,7 +2236,7 @@ async function refreshIgnores() {
     ignores = null;
   }
   renderIgnores();
-  syncStepSubs();
+  syncSummaries();
 }
 
 /** 排除项的类型标签：文件夹通配（docs\*）、通配符（*.log）、具体文件 */
@@ -2498,7 +2527,7 @@ async function runStage(stage: Stage): Promise<"ok" | "skipped" | "failed" | "ab
   if (!runningAll) setRunProgress(`正在执行：${STAGE_META[stage].title}…`);
   statuses = { ...statuses, [stage]: "running" };
   updateAllBadges();
-  syncStepSubs();
+  syncSummaries();
 
   try {
     // 先把防抖中的待保存修改结算掉 —— 否则这次执行可能跑在磁盘上的旧内容上。
@@ -2535,7 +2564,7 @@ async function runStage(stage: Stage): Promise<"ok" | "skipped" | "failed" | "ab
     updateAllBadges();
     updatePlanSums();
     updatePlanArtifacts();
-    syncStepSubs();
+    syncSummaries();
   }
 }
 
@@ -2740,7 +2769,7 @@ void onLog((event) => logPanel.append(event));
 void onStage((event) => {
   statuses = { ...statuses, [event.stage]: event.status };
   updateBadge(event.stage);
-  syncStepSubs();
+  syncSummaries();
 });
 
 void bootstrap();

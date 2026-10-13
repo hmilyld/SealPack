@@ -1782,6 +1782,75 @@ check(
   (v) => !(String(v[0]).includes("未启用") && !String(v[1]).includes("未启用")),
 );
 
+console.log("\n49) 应用标识（AppId）：自动推导、写入模板、且不覆盖手工值");
+await goto("/preview.html?skin=swiss&theme=light");
+await sleep(600);
+const appIdBefore = await evaluate(`document.querySelector('[data-opt="appId"]')?.value ?? "(无此控件)"`);
+check("D49", "应用标识控件存在且初始为空（等推导）", appIdBefore, "");
+
+// 手工填一个值再选主程序：**不能**被自动推导覆盖 —— 否则改过一次，
+// 下次换主程序时就被悄悄改回默认，已装版本又变成「另一个应用」
+await evaluate(`(() => {
+  const el = document.querySelector('[data-opt="appId"]');
+  el.value = "11111111-2222-3333-4444-555555555555";
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`);
+await sleep(400);
+await evaluate(`document.querySelector('[data-act="pick-exe"]').click(); true`);
+await sleep(1200);
+const appIdKept = await evaluate(`document.querySelector('[data-opt="appId"]')?.value ?? ""`);
+check("D49", "手工填过的值不被自动推导覆盖", appIdKept, "11111111-2222-3333-4444-555555555555");
+
+// 清空后再选 → 自动推导出 mock 里那个固定值
+await evaluate(`(() => {
+  const el = document.querySelector('[data-opt="appId"]');
+  el.value = "";
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`);
+await sleep(400);
+await evaluate(`document.querySelector('[data-act="pick-exe"]').click(); true`);
+await sleep(1200);
+const appIdDerived = await evaluate(`document.querySelector('[data-opt="appId"]')?.value ?? ""`);
+const scriptUsesPlaceholder = await evaluate(
+  `(document.querySelector('[data-code="package"]')?.value ?? "").includes("AppId={{\${appId}}")`,
+);
+results.D49 = { appIdBefore, appIdKept, appIdDerived, scriptUsesPlaceholder };
+check("D49", "清空后再选主程序会自动推导", appIdDerived, "6f3a1c2e-8b47-5d91-9a04-2c7be5f0d318");
+check("D49", "打包模板用 ${appId} 占位符（执行时替换）", scriptUsesPlaceholder, true);
+
+console.log("\n50) 预设高亮必须跟着选项走（改一个开关要退出已命中的档）");
+await goto("/preview.html?skin=swiss&theme=light");
+await sleep(600);
+const presetState = () =>
+  evaluate(`(() => ({
+  active: document.querySelector("[data-preset].is-active")?.dataset.preset ?? "(无)",
+  hint: document.querySelector("[data-preset-hint]")?.textContent.trim() ?? "",
+}))()`);
+// 点「标准」→ 高亮命中
+await evaluate(`document.querySelector('[data-preset="standard"]').click(); true`);
+await sleep(900);
+const presetAfterApply = await presetState();
+// 把「标准」档里的反调试关掉 → 选项不再与该档一致，高亮必须退出
+const toggledAntiDebug = await evaluate(`(() => {
+  const el = document.querySelector('[data-opt="antiDebug"]');
+  if (!el || el.type !== "checkbox") return false;
+  el.click();
+  return true;
+})()`);
+await sleep(800);
+const presetAfterToggle = await presetState();
+results.D50 = { presetAfterApply, presetAfterToggle, toggledAntiDebug };
+check("D50", "点「标准」后高亮命中该档", presetAfterApply.active, "standard");
+check("D50", "确实切换了反调试开关", toggledAntiDebug, true);
+check(
+  "D50",
+  "改一个开关后高亮退出（不再显示已命中「标准」）",
+  [presetAfterApply.active, presetAfterToggle.active],
+  (v) => v[0] === "standard" && v[1] !== "standard",
+);
+
 // ---------------------------------------------------------------- 汇总
 
 console.log("\n================ 探针结果 ================");
