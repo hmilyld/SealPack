@@ -16,7 +16,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,9 +26,21 @@ const BASE = process.argv[2] ?? `file:///${ROOT.replace(/\\/g, "/")}/dist-previe
 const OUT = process.argv[3] ?? join(ROOT, "docs", "images");
 const PORT = 9334;
 const VIEWPORT = { width: 1360, height: 900 };
-const CHROME =
-  process.env.CHROME_PATH ??
-  "C:/Users/hmilyld/.agent-browser/browsers/chrome-155.0.8059.39/chrome.exe";
+
+/** 与 ui-probe.mjs 同一套浏览器探测：优先 CHROME_PATH，其次常见安装位置 */
+const CHROME_CANDIDATES = [
+  process.env.CHROME_PATH,
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+].filter(Boolean);
+const CHROME = CHROME_CANDIDATES.find((p) => existsSync(p));
+if (!CHROME) {
+  console.error("找不到可用的 Chrome / Edge。请用 CHROME_PATH 指定浏览器可执行文件。");
+  process.exit(2);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

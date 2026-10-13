@@ -78,8 +78,12 @@ node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shot
 
 ```bash
 pnpm run dev                  # 另开一个终端
-node scripts/ui-probe.mjs     # 默认 http://localhost:1420，可用 CHROME_PATH 指定浏览器
+node scripts/ui-probe.mjs     # 默认 http://localhost:1420
 ```
+
+探针需要一个 Chromium 系浏览器：先看 `CHROME_PATH`，否则依次试常见安装位置
+（Chrome 64/32 位、Edge 64/32 位）。**Edge 也能跑** —— 两者是同一个引擎、同一套 CDP
+与命令行开关，实测截图逐字节一致。都找不到时会明确提示怎么指定，不会静默失败。
 
 它按六组断言跑完，最后打印 `FAIL` 列表并以退出码反映结果（失败 1 / 通过 0）：
 

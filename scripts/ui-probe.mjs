@@ -24,16 +24,34 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const BASE = process.argv[2] ?? "http://localhost:1420";
 const OUT = process.argv[3] ?? "docs/shots";
 const PORT = 9333;
-const CHROME =
-  process.env.CHROME_PATH ??
-  "C:/Users/hmilyld/.agent-browser/browsers/chrome-155.0.8059.39/chrome.exe";
+
+/**
+ * 找一个可用的 Chromium 系浏览器。
+ *
+ * 优先 `CHROME_PATH`，否则依次试几个常见安装位置（Chrome 与 Edge 都是 Chromium，
+ * 同一套 CDP 与命令行开关）。**刻意不写死任何本机路径** —— 那是只在一台机器上成立的配置。
+ */
+const CHROME_CANDIDATES = [
+  process.env.CHROME_PATH,
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+].filter(Boolean);
+const CHROME = CHROME_CANDIDATES.find((p) => existsSync(p));
+if (!CHROME) {
+  console.error("找不到可用的 Chrome / Edge。请用 CHROME_PATH 指定浏览器可执行文件，例如：");
+  console.error('  CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe" node scripts/ui-probe.mjs');
+  process.exit(2);
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
