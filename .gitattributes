@@ -1,0 +1,15 @@
+# 仓库内一律 LF，检出时不做平台转换 —— 避免 Windows 上出现整仓库的换行差异
+* text=auto eol=lf
+
+# 二进制文件不要做任何文本处理
+*.exe binary
+*.dll binary
+*.ico binary
+*.icns binary
+*.png binary
+*.woff2 binary
+
+# 锁文件在 diff 里没有阅读价值
+pnpm-lock.yaml linguist-generated=true
+src-tauri/Cargo.lock linguist-generated=true
+docs/fixtures/render-fixtures.json linguist-generated=true

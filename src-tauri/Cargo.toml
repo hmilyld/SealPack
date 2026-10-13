@@ -1,0 +1,64 @@
+[package]
+name = "sealpack"
+version = "0.1.0"
+description = "程序合并、加密与打包工作台"
+authors = ["hmilyld"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "sealpack_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+# 修复 schemars 0.8 的 preserve_order 特性（tauri-build 会强制开启）未启用 indexmap/std，
+# 导致 indexmap 1.x 的 IndexMap 缺少默认类型参数而编译失败。通过特性合并补上 std。
+indexmap = { version = "1.9", features = ["std"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# 记忆窗口尺寸与最大化状态（位置不记忆，始终居中）
+tauri-plugin-window-state = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = [
+    "process",
+    "io-util",
+    "sync",
+    "rt-multi-thread",
+    "macros",
+] }
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+encoding_rs = "0.8"
+# 同上：正常依赖图中也需补上 indexmap/std（resolver v2 下构建图与运行图特性不合并）
+indexmap = { version = "1.9", features = ["std"] }
+sha2 = "0.10.9"
+sha1 = "0.10.7"
+md-5 = "0.10.6"
+# 下载外部工具用。刻意关掉默认特性、只留 native-tls：
+# reqwest 0.13 起默认 TLS 后端换成了 rustls（会带进需要 C 工具链的 provider），
+# 而 Windows 上的 native-tls 走系统自带的 SChannel，纯 Rust 绑定、无需额外编译环境。
+reqwest = { version = "0.12", default-features = false, features = [
+    "native-tls",
+] }
+# 只用来解 zip；同样关掉默认特性，避免带进 bzip2 / zstd / lzma 等压缩后端。
+# deflate 特性用的是 flate2 的 rust_backend（miniz_oxide），纯 Rust。
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
+] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

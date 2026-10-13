@@ -1,0 +1,135 @@
+/* ============================================================================
+   SealPack 样式入口
+   ---------------------------------------------------------------------------
+   加载顺序即层叠顺序：
+     1. Tailwind（重置 + 工具类）
+     2. fonts     本地打包的拉丁字体
+     3. tokens    令牌层（:root 完整兜底值）
+     4. skins     两套设计的令牌覆盖 + 结构特征，作用域为 [data-skin]
+     5. components 组件层，两套设计共用
+   ========================================================================== */
+
+@import "tailwindcss";
+
+@import "./styles/fonts.css";
+@import "./styles/tokens.css";
+@import "./styles/skins/swiss.css";
+@import "./styles/skins/terminal.css";
+@import "./styles/components.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Instrument Sans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  html {
+    /* 桌面窗口不需要滚动回弹、双指缩放与文本自动放大 */
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-body);
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    /* 桌面程序的界面文字默认不可拖选 —— 网页式的蓝底选区是最明显的「网页感」来源之一。
+       可编辑控件与需要复制的内容在下面单独放开。 */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+
+  /* 有意保留可选中：输入框、代码/脚本编辑区、运行日志、以及显式标注的内容 */
+  input,
+  textarea,
+  .code,
+  .log-text,
+  .selectable,
+  .selectable * {
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  input,
+  textarea {
+    font-family: var(--font-mono);
+    cursor: text;
+  }
+
+  /* Windows 本地程序的按钮用箭头光标；手型光标是网页的习惯，去掉它能立刻「去 Web 化」 */
+  button,
+  summary,
+  label,
+  .btn,
+  .win-btn,
+  .skin-opt,
+  .chip,
+  .tool,
+  .project,
+  .tree li {
+    cursor: default;
+  }
+
+  img,
+  svg {
+    -webkit-user-drag: none;
+    user-drag: none;
+  }
+
+  /* 用设计主色替代浏览器默认的蓝色选区 */
+  ::selection {
+    background: var(--selection);
+    color: var(--selection-ink);
+  }
+
+  /* 默认焦点环是 Chrome 的样式，太「网页」；各组件用 --focus-ring 自己画 */
+  :focus {
+    outline: none;
+  }
+}
+
+/* ---------------------------------------------------------------- 窗口材质
+   Windows 11 的 Mica Alt（Rust 侧 Effect::Tabbed）。系统把桌面壁纸采样、
+   模糊、着色后画在**窗口基底**上，应用只要让外壳半透明就能透出来。
+
+   三道闸门，任何一道不通过就完全退回实色（见 tokens.css 的默认值）：
+     1. Rust 侧 set_effects() 成功 —— 失败时不加 data-material，Windows 10 即此路；
+     2. 用户没有手动关闭（右键主题按钮可关）；
+     3. 系统未开启「减弱透明度」辅助功能。
+   因此这里的规则只负责「开启后长什么样」，不需要考虑降级分支。 */
+html[data-material="on"] {
+  /* 半透明比例：chrome 比内容底更透，形成「基底透、内容实」的层次，
+     与 Fluent 的 Mica Alt 用法一致（导航/命令区透，内容区实）。 */
+  --material-app: color-mix(in srgb, var(--bg) 68%, transparent);
+  --material-titlebar: color-mix(in srgb, var(--titlebar-bg) 62%, transparent);
+  --material-rail: color-mix(in srgb, var(--rail-bg) 62%, transparent);
+  --material-statusbar: color-mix(in srgb, var(--titlebar-bg) 74%, transparent);
+}
+
+/* 让窗口基底（Mica）能透上来：根与 body 必须完全透明 */
+html[data-material="on"],
+html[data-material="on"] body {
+  background: transparent;
+}
+
+/* 「减弱透明度」时材质回退实色 —— 辅助功能优先于观感 */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-material="on"] {
+    --material-app: var(--bg);
+    --material-titlebar: var(--titlebar-bg);
+    --material-rail: var(--rail-bg);
+    --material-statusbar: var(--titlebar-bg);
+  }
+}

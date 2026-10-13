@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SealPack — UI 预览</title>
+    <script>
+      // 首帧引导（开发版）：额外支持 ?skin= / ?theme= 覆盖。
+      // 覆盖结果直接写进 localStorage，由 src/skin.ts 的控制器接管，
+      // 因此不会出现「预览参数与皮肤控制器互相打架」的情况。
+      (function () {
+        var root = document.documentElement;
+        var state = { skin: "swiss", themes: { swiss: "light", terminal: "dark" }, auto: true };
+
+        try {
+          var saved = JSON.parse(localStorage.getItem("sealpack:design") || "null");
+          if (saved && (saved.skin === "swiss" || saved.skin === "terminal")) state.skin = saved.skin;
+          if (saved && saved.themes) {
+            for (var k in state.themes) {
+              var v = saved.themes[k];
+              if (v === "dark" || v === "light") state.themes[k] = v;
+            }
+          }
+          if (saved && typeof saved.auto === "boolean") state.auto = saved.auto;
+        } catch (e) {
+          /* 存储不可用时用默认值 */
+        }
+
+        var q = new URLSearchParams(location.search);
+        var qSkin = q.get("skin");
+        if (qSkin === "swiss" || qSkin === "terminal") state.skin = qSkin;
+        var qTheme = q.get("theme");
+        if (qTheme === "dark" || qTheme === "light") {
+          state.themes[state.skin] = qTheme;
+          state.auto = false; // 显式指定就退出自动模式
+        }
+
+        try {
+          localStorage.setItem("sealpack:design", JSON.stringify(state));
+        } catch (e) {
+          /* 忽略 */
+        }
+
+        var system =
+          window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+        var theme = state.auto ? system : state.themes[state.skin];
+
+        root.dataset.skin = state.skin;
+        root.dataset.theme = theme;
+        root.dataset.themeMode = state.auto ? "auto" : "manual";
+        root.classList.toggle("dark", theme === "dark");
+        root.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app" class="h-full"></div>
+    <!-- 只引用一个入口：mock 与 main 的加载顺序由 preview/entry.ts 保证。
+         拆成两个 <script type="module"> 会在 MPA 构建时被 Vite 去重，
+         预览页会变成空白（见 preview/entry.ts 的注释）。 -->
+    <script type="module" src="/preview/entry.ts"></script>
+  </body>
+</html>

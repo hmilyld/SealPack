@@ -1,0 +1,583 @@
+/* ============================================================================
+   设计 B — 终端 · 赛博安全工具
+   近黑底 + 荧光青/酸绿，全等宽排版，扫描线、辉光、方括号控件。
+   所有标签都带命令行前缀，文件树直接用 box-drawing 字符。
+   ========================================================================== */
+
+[data-skin="terminal"] {
+  --font-display: "Chakra Petch", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    sans-serif;
+  --font-body: "IBM Plex Mono", "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+
+  --titlebar-h: 36px;
+  --rail-w: 248px;
+  --mark-size: 20px;
+  --index-size: 26px;
+  --log-h: 124px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 14px;
+  --tree-indent: 14px;
+  --tree-row-pad: 2px 5px;
+  --tree-tw: 22px;
+  --input-pad: 4px 7px;
+  --box-size: 12px;
+  --btn-pad: 5px 11px;
+  --btn-sm-pad: 3px 8px;
+  --btn-xs-pad: 2px 6px;
+  --dialog-pad: 14px;
+
+  --radius: 2px;
+  --radius-sm: 2px;
+  --chip-radius: 2px;
+  --box-radius: 1px;
+  --btn-radius: 2px;
+  --index-radius: 2px;
+  --status-radius: 2px;
+  --border-w: 1px;
+  --chip-border-w: 1px;
+  --box-border-w: 1px;
+
+  --brand-size: 13px;
+  --brand-weight: 700;
+  --brand-tracking: 0.16em;
+  --brand-transform: uppercase;
+  --h1-size: 12.5px;
+  --h1-weight: 700;
+  --h1-tracking: 0.1em;
+  --h1-transform: uppercase;
+  --h2-size: 11px;
+  --h2-weight: 700;
+  --h2-tracking: 0.14em;
+  --h2-transform: uppercase;
+  --h3-size: 13px;
+  --h3-weight: 600;
+  --h3-tracking: 0.08em;
+  --h3-transform: uppercase;
+  --label-tracking: 0.12em;
+  --label-transform: uppercase;
+  --btn-font: var(--font-mono);
+  --btn-size: 10.5px;
+  --btn-weight: 500;
+  --btn-tracking: 0.04em;
+  --btn-transform: none;
+
+  --shadow: none;
+  --btn-shadow: none;
+  --btn-primary-shadow: none;
+  --btn-active-transform: translateY(1px);
+  --btn-active-shadow: none;
+  /* 与网格一致：2px 双描边，去掉原来的彩色光环（Windows 不用 halo） */
+  --focus-ring-width: 2px;
+  --focus-ring: 0 0 0 var(--focus-ring-width) var(--panel),
+    0 0 0 calc(var(--focus-ring-width) * 2) var(--accent);
+  --box-check-shadow: 0 0 10px -3px var(--accent);
+  --overlay-blur: 3px;
+
+  --box-bg: transparent;
+  --box-border: var(--border-strong);
+  --btn-bg: transparent;
+  --btn-border: var(--border);
+  --btn-hover-bg: var(--hover);
+  --btn-hover-border: var(--border-strong);
+}
+
+[data-skin="terminal"][data-theme="dark"] {
+  --bg: #05070a;
+  --panel: #0a0e13;
+  --panel-a: #0a0e13;
+  --panel-b: #0a0e13;
+  --sunken: #030507;
+  --rail-bg: #070a0e;
+  --titlebar-bg: #070a0e;
+  --log-bg: #04070a;
+  --dialog-bg: #0a0e13;
+  --border: #16212b;
+  --border-strong: #23343f;
+  --border-lit: #1d2b36;
+  --text: #d2e6ef;
+  --text-dim: #85a0ae;
+  --text-mute: #4f6674;
+  --hover: rgba(53, 214, 232, 0.07);
+  --active-bg: rgba(53, 214, 232, 0.1);
+  --active-border: #35d6e8;
+  --input-bg: #04070a;
+  --input-border: #1b2a35;
+  --overlay-bg: rgba(2, 4, 6, 0.66);
+
+  --accent: #35d6e8;
+  --accent-hover: #5fe3f2;
+  --accent-ink: #04191d;
+  --accent-border: #35d6e8;
+  --accent-soft: rgba(53, 214, 232, 0.1);
+  --accent-border-soft: rgba(53, 214, 232, 0.32);
+  --accent-text: #5fe3f2;
+  --accent-2: #a3e635;
+
+  --ok: #6ee7a8;
+  --ok-bg: rgba(110, 231, 168, 0.1);
+  --info: #7ab8e8;
+  --info-bg: rgba(122, 184, 232, 0.1);
+  --warn: #f0c674;
+  --warn-bg: rgba(240, 198, 116, 0.1);
+  --warn-border: rgba(240, 198, 116, 0.34);
+  --warn-text: #f2d093;
+  --warn-ink: #1c1405;
+  --danger: #ff6b6b;
+
+  --status-border: var(--border);
+  --box-bg: transparent;
+  --box-border: #23343f;
+  --scanline: rgba(255, 255, 255, 0.022);
+
+  --selection: rgba(53, 214, 232, 0.26);
+  --selection-ink: #eaf7fa;
+}
+
+[data-skin="terminal"][data-theme="light"] {
+  --bg: #faf8f5;
+  --panel: #ffffff;
+  --panel-a: #ffffff;
+  --panel-b: #ffffff;
+  --sunken: #f2efe9;
+  --rail-bg: #f6f3ed;
+  --titlebar-bg: #f6f3ed;
+  --log-bg: #ffffff;
+  --dialog-bg: #ffffff;
+  --border: #dcd6ca;
+  --border-strong: #b3aca0;
+  --border-lit: #ffffff;
+  --text: #14201f;
+  --text-dim: #4d5f5d;
+  --text-mute: #8a9492;
+  --hover: rgba(11, 114, 133, 0.07);
+  --active-bg: rgba(11, 114, 133, 0.1);
+  --active-border: #0b7285;
+  --input-bg: #ffffff;
+  --input-border: #d5cec2;
+  --overlay-bg: rgba(20, 32, 31, 0.4);
+
+  --accent: #0b7285;
+  --accent-hover: #085b6b;
+  --accent-ink: #ffffff;
+  --accent-border: #0b7285;
+  --accent-soft: rgba(11, 114, 133, 0.1);
+  --accent-border-soft: rgba(11, 114, 133, 0.3);
+  --accent-text: #085b6b;
+  --accent-2: #4d7c0f;
+
+  --ok: #1f7a4d;
+  --ok-bg: rgba(31, 122, 77, 0.09);
+  --info: #2c6b9e;
+  --info-bg: rgba(44, 107, 158, 0.09);
+  --warn: #8a6410;
+  --warn-bg: #fdf4e0;
+  --warn-border: #e3cd97;
+  --warn-text: #6f4f08;
+  --warn-ink: #ffffff;
+  --danger: #b8332b;
+
+  --status-border: var(--border);
+  --box-bg: transparent;
+  --box-border: #b3aca0;
+  --scanline: rgba(0, 0, 0, 0.018);
+
+  --selection: rgba(11, 114, 133, 0.2);
+  --selection-ink: #14201f;
+}
+
+/* ============================ 结构特征 ============================ */
+
+/* 扫描线：固定覆盖层，极低不透明度，只为了「屏幕」的质感 */
+[data-skin="terminal"] .app {
+  position: relative;
+}
+
+[data-skin="terminal"] .app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--scanline) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* 文件树：box-drawing 分支符 + [x]/[ ]/[/] 复选框。
+   这两个字符分别由 .tree-tw / .tree-cb 两个真实元素承载，
+   因此它们各自是独立的点击热区 —— 点分支不会改勾选，点勾选不会折叠。 */
+[data-skin="terminal"] .tree-tw svg {
+  display: none;
+}
+
+[data-skin="terminal"] .tree li:not(.dir) > .tree-tw {
+  visibility: visible;
+}
+
+[data-skin="terminal"] .tree-tw::before {
+  content: "├─";
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-mute);
+}
+
+[data-skin="terminal"] .tree li:last-child > .tree-tw::before {
+  content: "└─";
+}
+
+[data-skin="terminal"] .tree li.dir > .tree-tw::before {
+  color: var(--accent-2);
+}
+
+/* 折叠态：换成 + 号，比旋转 box-drawing 字符合理 */
+[data-skin="terminal"] .tree li.dir.is-collapsed > .tree-tw {
+  transform: none;
+}
+
+[data-skin="terminal"] .tree li.dir.is-collapsed > .tree-tw::before {
+  content: "├+";
+}
+
+[data-skin="terminal"] .tree li.dir.is-collapsed:last-child > .tree-tw::before {
+  content: "└+";
+}
+
+[data-skin="terminal"] .tree-cb {
+  width: auto;
+  height: auto;
+  margin: 0 6px 0 3px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-mute);
+}
+
+[data-skin="terminal"] .tree-cb::before {
+  content: "[ ]";
+}
+
+[data-skin="terminal"] .tree li.is-checked > .tree-cb {
+  background: none;
+  box-shadow: none;
+}
+
+[data-skin="terminal"] .tree li.is-checked > .tree-cb::before {
+  content: "[x]";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .tree li.is-partial > .tree-cb {
+  background: none;
+  box-shadow: none;
+}
+
+[data-skin="terminal"] .tree li.is-partial > .tree-cb::before {
+  content: "[-]";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .tree li.dir > .tree-cb::before {
+  content: "[/]";
+  color: var(--accent-2);
+}
+
+[data-skin="terminal"] .tree li.dir.is-checked > .tree-cb::before {
+  content: "[x]";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .tree li.dir.is-partial > .tree-cb::before {
+  content: "[-]";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .tree li.dir > .tree-nm {
+  color: var(--accent-2);
+}
+
+[data-skin="terminal"] .tree li.is-checked > .tree-nm {
+  color: var(--text);
+}
+
+[data-skin="terminal"] .tree li.is-hit > .tree-nm {
+  color: var(--accent);
+}
+
+/* 主按钮：方括号包裹 */
+[data-skin="terminal"] .btn-primary::before {
+  content: "[";
+  opacity: 0.55;
+}
+
+[data-skin="terminal"] .btn-primary::after {
+  content: "]";
+  opacity: 0.55;
+}
+
+/* 命令行前缀 */
+[data-skin="terminal"] .field-label::before,
+[data-skin="terminal"] .rail-title::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .toolbar-label::before {
+  content: "$ ";
+  color: var(--accent-2);
+}
+
+[data-skin="terminal"] .pane-head-text h2::before,
+[data-skin="terminal"] .sub-title::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .log-line::before {
+  content: "$";
+  flex: none;
+  color: var(--accent-2);
+  opacity: 0.75;
+}
+
+/* 序号：带内辉光的方块 */
+[data-skin="terminal"] .plan-index {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent-border-soft);
+  box-shadow: inset 0 0 12px -6px var(--accent);
+}
+
+/* 步骤条：当前步带辉光与青色描边 */
+[data-skin="terminal"] .step {
+  border-color: var(--border);
+}
+
+[data-skin="terminal"] .step-num {
+  color: var(--text-mute);
+  background: transparent;
+  border-color: var(--border);
+}
+
+[data-skin="terminal"] .step.is-active {
+  border-color: var(--accent-border-soft);
+  box-shadow: inset 0 0 24px -18px var(--accent);
+}
+
+[data-skin="terminal"] .step.is-active .step-num {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 14px -4px var(--accent);
+}
+
+[data-skin="terminal"] .step.is-active .step-title {
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .step.is-done .step-num {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+/* 开关：青色滑块 + 内辉光 */
+[data-skin="terminal"] .switch-ui {
+  background: var(--sunken);
+  border-color: var(--border-strong);
+}
+
+[data-skin="terminal"] .switch input:checked + .switch-ui {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 14px -6px var(--accent);
+}
+
+[data-skin="terminal"] .switch input:checked + .switch-ui::after {
+  background: var(--accent);
+}
+
+/* 选项分组：终端皮肤下组标题也用 `> ` 前缀，与其它标题保持同一套语言 */
+[data-skin="terminal"] .opt-group-title::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .opt-group-body {
+  border-color: var(--border);
+}
+
+[data-skin="terminal"] .opt-group-count {
+  color: var(--accent-2);
+  opacity: 0.75;
+}
+
+/* 参数行的控件也要吃到终端皮肤的字形与内辉光 */
+[data-skin="terminal"] .opt-control .input {
+  font-family: var(--font-mono);
+}
+
+[data-skin="terminal"] .input-num {
+  color: var(--accent-2);
+}
+
+[data-skin="terminal"] .opt-unit {
+  color: var(--accent-2);
+  opacity: 0.7;
+}
+
+[data-skin="terminal"] .opt-default {
+  color: var(--text-mute);
+}
+
+[data-skin="terminal"] .opt-default.is-changed {
+  color: var(--accent-2);
+}
+
+/* 预设按钮：选中态用方括号包起来，与 [x] 复选框同一套记号 */
+[data-skin="terminal"] .preset.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 16px -8px var(--accent);
+}
+
+[data-skin="terminal"] .preset.is-active::before {
+  content: "[";
+}
+
+[data-skin="terminal"] .preset.is-active::after {
+  content: "]";
+}
+
+[data-skin="terminal"] .opt-badge {
+  color: var(--accent-2);
+  background: transparent;
+  border-color: rgba(163, 230, 53, 0.32);
+}
+
+[data-skin="terminal"] .exclude-chip.is-custom {
+  background: transparent;
+  border-color: var(--accent-border-soft);
+}
+
+/* 终端必须自带 hover，只靠组件层不行：上面这条静息规则是无层的，而组件层
+   （@layer components）里的 .exclude-chip.is-custom:hover 优先级压不过无层规则，
+   不写的话 hover 背景会一直停在 transparent。
+   文字用 accent-ink 而非 accent-text：light 是白字压深青 #0b7285，
+   dark 是深字压亮青 #35d6e8。曾经这里写成 accent-text + accent，
+   light 下成了 #085b6b 压 #0b7285 —— 深青撞深青（本次修掉的 bug）。 */
+[data-skin="terminal"] .exclude-chip.is-custom:hover {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+[data-skin="terminal"] .artifact {
+  background: transparent;
+}
+
+[data-skin="terminal"] .plan-row .status {
+  letter-spacing: 0.14em;
+}
+
+[data-skin="terminal"] .status {
+  letter-spacing: 0.14em;
+}
+
+[data-skin="terminal"] .status.is-running {
+  box-shadow: 0 0 16px -5px var(--info);
+}
+
+[data-skin="terminal"] .status.is-done {
+  box-shadow: 0 0 16px -5px var(--ok);
+}
+
+[data-skin="terminal"] .chip {
+  color: var(--accent-2);
+  background: transparent;
+  border-color: rgba(163, 230, 53, 0.32);
+}
+
+[data-skin="terminal"][data-theme="light"] .chip {
+  border-color: rgba(77, 124, 15, 0.3);
+}
+
+[data-skin="terminal"] .chip:hover {
+  background: var(--accent-2);
+  color: var(--bg);
+  border-color: var(--accent-2);
+}
+
+[data-skin="terminal"] .code {
+  border-inline-start: 2px solid var(--accent-border-soft);
+}
+
+[data-skin="terminal"] .brand-mark {
+  box-shadow: 0 0 20px -6px var(--accent);
+}
+
+[data-skin="terminal"] .card,
+[data-skin="terminal"] .panes,
+[data-skin="terminal"] .dialog {
+  box-shadow: inset 0 0 40px -30px var(--accent);
+}
+
+/* 对话框标题也带 > 前缀 */
+[data-skin="terminal"] .dialog-head h2::before {
+  content: "> ";
+  color: var(--accent);
+}
+
+[data-skin="terminal"] .toast {
+  border-color: var(--accent-border-soft);
+  box-shadow: 0 0 20px -10px var(--accent);
+}
+
+[data-skin="terminal"] .skin-switch {
+  border-color: var(--accent-border-soft);
+}
+
+[data-skin="terminal"] .skin-opt.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 12px -6px var(--accent);
+}
+
+[data-skin="terminal"] .empty-mark {
+  border-radius: 2px;
+  border: 1px solid var(--accent-border-soft);
+  box-shadow: inset 0 0 24px -14px var(--accent);
+}
+
+[data-skin="terminal"] .empty-mark svg {
+  color: var(--accent);
+}
+
+/* 下载条：终端皮肤下把「来源与体积」这行当命令回显处理，进度条用次级强调色 */
+[data-skin="terminal"] .dl {
+  border-color: var(--border);
+}
+
+[data-skin="terminal"] .dl-src {
+  color: var(--accent-2);
+  opacity: 0.85;
+}
+
+[data-skin="terminal"] .dl-bar {
+  height: 3px;
+  border-radius: 0;
+  background: var(--border);
+}
+
+[data-skin="terminal"] .dl-fill {
+  background: var(--accent-2);
+  box-shadow: 0 0 6px -1px var(--accent-2);
+}
+
+[data-skin="terminal"] .dl-msg {
+  font-family: var(--font-mono);
+}

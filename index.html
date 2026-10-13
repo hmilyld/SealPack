@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SealPack</title>
+    <script>
+      // 首帧引导：在 CSS 应用之前把设计状态写到根元素上。
+      // 窗口以 visible:false 创建，等这里执行完 + 首帧绘制后才显示，所以不会闪白底。
+      // 逻辑与 src/skin.ts 的 applyDesign 保持一致（这里不能 import，所以内联一份）。
+      //
+      // ⚠ 这是内联脚本，而 CSP 是 `script-src 'self'`（没有 'unsafe-inline'）：
+      // 它能执行依赖 Tauri 在构建时为内联脚本注入 CSP hash/nonce。
+      // 因此改 CSP、换页面宿主、或把这段挪成外链时，必须回归「启动首帧的主题是否正确」——
+      // 一旦失效，表现是启动时闪一下白底/主题错一帧，而不是报错。
+      (function () {
+        var root = document.documentElement;
+        var skin = "swiss";
+        var themes = { swiss: "light", terminal: "dark" };
+        var auto = true;
+
+        try {
+          var saved = JSON.parse(localStorage.getItem("sealpack:design") || "null") || {};
+          if (saved.skin === "swiss" || saved.skin === "terminal") skin = saved.skin;
+          if (saved.themes) {
+            if (saved.themes.swiss === "dark" || saved.themes.swiss === "light") {
+              themes.swiss = saved.themes.swiss;
+            }
+            if (saved.themes.terminal === "dark" || saved.themes.terminal === "light") {
+              themes.terminal = saved.themes.terminal;
+            }
+          }
+          if (typeof saved.auto === "boolean") auto = saved.auto;
+        } catch (e) {
+          /* 存储不可用时用默认值 */
+        }
+
+        // WebView2 把 prefers-color-scheme 映射到 Windows 的「应用模式」
+        var system =
+          window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+        var theme = auto ? system : themes[skin];
+
+        root.dataset.skin = skin;
+        root.dataset.theme = theme;
+        root.dataset.themeMode = auto ? "auto" : "manual";
+        root.classList.toggle("dark", theme === "dark");
+        root.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app" class="h-full"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

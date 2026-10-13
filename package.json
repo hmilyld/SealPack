@@ -1,0 +1,30 @@
+{
+  "name": "sealpack",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "程序合并、加密与打包工作台",
+  "packageManager": "pnpm@12.5.1",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build",
+    "build:preview": "tsc --noEmit && vite build --config vite.preview.config.ts",
+    "check:render-parity": "node --experimental-strip-types scripts/check-render-parity.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-dialog": "^2.8.2",
+    "@tauri-apps/plugin-opener": "^2.7.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.12.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4"
+  }
+}

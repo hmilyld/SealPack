@@ -1,0 +1,472 @@
+/* ============================================================================
+   设计 A — 瑞士技术网格
+   暖白纸底 + 粗黑线 + 单一朱红；零圆角、表格化控件、大号细体序号。
+   靠对齐与比例取胜，不用任何装饰。
+   ========================================================================== */
+
+[data-skin="swiss"] {
+  --font-display: "Instrument Sans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+    sans-serif;
+  --font-body: var(--font-display);
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+
+  --titlebar-h: 38px;
+  --rail-w: 244px;
+  --mark-size: 22px;
+  --index-size: 32px;
+  --log-h: 116px;
+  --gap-2: 8px;
+  --gap-3: 14px;
+  --gap-4: 16px;
+  --tree-indent: 16px;
+  --tree-row-pad: 3px 6px;
+  --tree-tw: 15px;
+  --input-pad: 4px 0;
+  --box-size: 12px;
+  --btn-pad: 6px 14px;
+  --btn-sm-pad: 4px 9px;
+  --btn-xs-pad: 2px 7px;
+  --dialog-pad: 18px;
+
+  --radius: 0;
+  --radius-sm: 0;
+  --chip-radius: 0;
+  --box-radius: 0;
+  --btn-radius: 0;
+  --index-radius: 0;
+  --status-radius: 0;
+  --border-w: 1px;
+  --chip-border-w: 1px;
+  --box-border-w: 1.5px;
+
+  --brand-size: 15px;
+  --brand-weight: 700;
+  --brand-tracking: -0.02em;
+  --brand-transform: none;
+  --h1-size: 14px;
+  --h1-weight: 600;
+  --h1-tracking: -0.01em;
+  --h1-transform: none;
+  --h2-size: 10.5px;
+  --h2-weight: 700;
+  --h2-tracking: 0.16em;
+  --h2-transform: uppercase;
+  --h3-size: 14px;
+  --h3-weight: 600;
+  --h3-tracking: -0.01em;
+  --h3-transform: none;
+  --label-tracking: 0.14em;
+  --label-transform: uppercase;
+  --btn-font: var(--font-display);
+  --btn-size: 11px;
+  --btn-weight: 600;
+  --btn-tracking: 0.08em;
+  --btn-transform: uppercase;
+
+  --shadow: none;
+  --btn-shadow: none;
+  --btn-primary-shadow: none;
+  --btn-active-transform: none;
+  --btn-active-shadow: none;
+  /* Windows 焦点视觉：2px 双描边（内浅外深），在任何底色上都可见 */
+  --focus-ring-width: 2px;
+  --focus-ring: 0 0 0 var(--focus-ring-width) var(--panel),
+    0 0 0 calc(var(--focus-ring-width) * 2) var(--text);
+  --box-check-shadow: none;
+  --overlay-blur: 2px;
+
+  --box-bg: transparent;
+  --box-border: var(--border-strong);
+  --btn-bg: transparent;
+  --btn-border: var(--border);
+  --btn-hover-bg: var(--hover);
+  --btn-hover-border: var(--border-strong);
+}
+
+/* ---- 浅色（主场）：暖白纸 */
+[data-skin="swiss"][data-theme="light"] {
+  --bg: #faf8f5;
+  --panel: #ffffff;
+  --panel-a: #ffffff;
+  --panel-b: #ffffff;
+  --sunken: #f3efe7;
+  --rail-bg: #faf8f5;
+  --titlebar-bg: #faf8f5;
+  --log-bg: #ffffff;
+  --dialog-bg: #ffffff;
+  --border: #ddd6c9;
+  --border-strong: #14120f;
+  --border-lit: #ffffff;
+  --text: #14120f;
+  --text-dim: #5a554c;
+  --text-mute: #8b857a;
+  --hover: #f1ece2;
+  --active-bg: #14120f;
+  --active-border: #14120f;
+  --input-bg: transparent;
+  --input-border: #ddd6c9;
+  --overlay-bg: rgba(20, 18, 15, 0.42);
+
+  --accent: #d8332a;
+  --accent-hover: #b8281f;
+  --accent-ink: #ffffff;
+  --accent-border: #d8332a;
+  --accent-soft: rgba(216, 51, 42, 0.1);
+  --accent-border-soft: rgba(216, 51, 42, 0.32);
+  --accent-text: #b8281f;
+
+  --ok: #1f6b4a;
+  --ok-bg: rgba(31, 107, 74, 0.08);
+  --info: #1f4f7a;
+  --info-bg: rgba(31, 79, 122, 0.08);
+  --warn: #8a5a08;
+  --warn-bg: #fdf5e3;
+  --warn-border: #e3cd97;
+  --warn-text: #6f4a06;
+  --warn-ink: #ffffff;
+  --danger: #d8332a;
+
+  --status-border: #14120f;
+  --box-bg: transparent;
+  --box-border: #14120f;
+
+  /* 选区用朱红，而不是浏览器默认的蓝 */
+  --selection: rgba(216, 51, 42, 0.18);
+  --selection-ink: #14120f;
+}
+
+/* ---- 暗色：反相图纸 */
+[data-skin="swiss"][data-theme="dark"] {
+  --bg: #131211;
+  --panel: #1a1917;
+  --panel-a: #1a1917;
+  --panel-b: #1a1917;
+  --sunken: #0e0d0c;
+  --rail-bg: #131211;
+  --titlebar-bg: #131211;
+  --log-bg: #1a1917;
+  --dialog-bg: #1a1917;
+  --border: #302d29;
+  --border-strong: #faf8f5;
+  --border-lit: #3a3733;
+  --text: #faf8f5;
+  --text-dim: #aaa49a;
+  --text-mute: #746e64;
+  --hover: #22201d;
+  --active-bg: #faf8f5;
+  --active-border: #faf8f5;
+  --input-bg: transparent;
+  --input-border: #302d29;
+  --overlay-bg: rgba(8, 7, 6, 0.6);
+
+  --accent: #ff4438;
+  --accent-hover: #ff6459;
+  --accent-ink: #1a0705;
+  --accent-border: #ff4438;
+  --accent-soft: rgba(255, 68, 56, 0.14);
+  --accent-border-soft: rgba(255, 68, 56, 0.4);
+  --accent-text: #ff6b60;
+
+  --ok: #4fc08d;
+  --ok-bg: rgba(79, 192, 141, 0.12);
+  --info: #6fa8d8;
+  --info-bg: rgba(111, 168, 216, 0.12);
+  --warn: #e0a33c;
+  --warn-bg: rgba(224, 163, 60, 0.12);
+  --warn-border: rgba(224, 163, 60, 0.36);
+  --warn-text: #e8c07a;
+  --warn-ink: #1b1305;
+  --danger: #ff4438;
+
+  --status-border: #faf8f5;
+  --box-bg: transparent;
+  --box-border: #faf8f5;
+
+  --selection: rgba(255, 68, 56, 0.26);
+  --selection-ink: #faf8f5;
+}
+
+/* ============================ 结构特征 ============================ */
+
+/* 步骤序号 / 执行清单序号：大号细体数字 + 右侧发丝线，像图纸的编号栏 */
+[data-skin="swiss"] .plan-index {
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-inline-end: 1px solid var(--border);
+  border-radius: 0;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  justify-items: start;
+  margin-inline-end: var(--gap-2);
+}
+
+/* 步骤条：方块分段 + 顶部粗线标记当前步 */
+[data-skin="swiss"] .step {
+  border-radius: 0;
+  border-width: 1px;
+  border-top-width: 3px;
+  border-top-color: var(--border);
+}
+
+[data-skin="swiss"] .step.is-active {
+  border-top-color: var(--accent);
+}
+
+[data-skin="swiss"] .step.is-done {
+  border-top-color: var(--border-strong);
+}
+
+[data-skin="swiss"] .step-num {
+  border-radius: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 400;
+  background: transparent;
+}
+
+[data-skin="swiss"] .step.is-active .step-num {
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+/* 朱红小方块作为所有微标签的引导符 */
+[data-skin="swiss"] .field-label::before,
+[data-skin="swiss"] .toolbar-label::before,
+[data-skin="swiss"] .rail-title::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-inline-end: 6px;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+/* 对话框标题：粗黑下沿 */
+[data-skin="swiss"] .dialog-head {
+  border-bottom: 3px solid var(--border-strong);
+  padding-bottom: 10px;
+}
+
+/* 面板抬头：粗黑下沿，与卡片标题同一套语言 */
+[data-skin="swiss"] .pane-head {
+  border-bottom: 3px solid var(--border-strong);
+}
+
+[data-skin="swiss"] .pane-head-text h2 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* 开关：方块滑块，零圆角 */
+[data-skin="swiss"] .switch-ui {
+  border-radius: 0;
+}
+
+[data-skin="swiss"] .switch-ui::after {
+  border-radius: 0;
+}
+
+[data-skin="swiss"] .switch input:checked + .switch-ui::after {
+  background: var(--accent-ink);
+}
+
+[data-skin="swiss"] .opt {
+  border-radius: 0;
+}
+
+[data-skin="swiss"] .opt-badge {
+  border-radius: 0;
+}
+
+/* 选项分组：瑞士网格风一律方角、粗分隔线 */
+[data-skin="swiss"] .opt-group-body {
+  border-radius: 0;
+  border-color: var(--border-strong);
+}
+
+[data-skin="swiss"] .opt-group-title {
+  padding-bottom: 2px;
+  border-bottom: var(--border-w) solid var(--border-strong);
+}
+
+[data-skin="swiss"] .opt-group-count {
+  color: var(--text-dim);
+}
+
+/* 参数行的控件同样是方角，数字用等宽对齐 */
+[data-skin="swiss"] .opt-control .input,
+[data-skin="swiss"] .opt-control .btn {
+  border-radius: 0;
+}
+
+[data-skin="swiss"] .input-num {
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+}
+
+[data-skin="swiss"] .preset.is-active {
+  border-radius: 0;
+}
+
+/* 排除项：方角 */
+[data-skin="swiss"] .exclude-chip,
+[data-skin="swiss"] .artifact,
+[data-skin="swiss"] .ignore-preview,
+[data-skin="swiss"] .adv,
+[data-skin="swiss"] .plan {
+  border-radius: 0;
+}
+
+/* 选中工程：整块反白 */
+[data-skin="swiss"] .project.is-active {
+  padding-inline: 10px;
+}
+
+[data-skin="swiss"] .project.is-active .project-name {
+  color: var(--bg);
+}
+
+[data-skin="swiss"] .project.is-active .project-path {
+  color: var(--bg);
+  opacity: 0.72;
+}
+
+[data-skin="swiss"] .btn-primary:hover {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+/* 输入框：只保留下划线，像填表格 */
+[data-skin="swiss"] .input {
+  border: 0;
+  border-bottom: 1.5px solid var(--input-border);
+  padding-inline: 0;
+}
+
+[data-skin="swiss"] .input:focus {
+  border-bottom-color: var(--accent);
+  box-shadow: none;
+}
+
+[data-skin="swiss"] .input[readonly] {
+  background: transparent;
+  border-bottom-style: dotted;
+}
+
+/* 文件树：去掉容器边框，改成名录式的横向发丝线 */
+[data-skin="swiss"] .tree {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0;
+}
+
+[data-skin="swiss"] .tree li {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 5px 4px;
+}
+
+[data-skin="swiss"] .tree ul ul {
+  border-inline-start: 1px solid var(--border);
+}
+
+[data-skin="swiss"] .tree-tw {
+  color: var(--text);
+}
+
+[data-skin="swiss"] .chip {
+  background: transparent;
+  border-color: var(--accent-border-soft);
+}
+
+[data-skin="swiss"] .chip:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+[data-skin="swiss"] .code {
+  background: transparent;
+  border-inline-start: 3px solid var(--accent);
+  border-block: 1px solid var(--border);
+  border-inline-end: 0;
+  border-radius: 0;
+}
+
+[data-skin="swiss"] .status {
+  border-width: 1.5px;
+}
+
+[data-skin="swiss"] .status::before {
+  border-radius: 0;
+  width: 6px;
+  height: 6px;
+}
+
+[data-skin="swiss"] .log-line + .log-line {
+  border-top: 1px solid var(--border);
+}
+
+/* 对话框：加一条粗顶线，像文件的抬头 */
+[data-skin="swiss"] .dialog {
+  border-radius: 0;
+  border-top: 4px solid var(--accent);
+}
+
+/* 提示条：左侧粗红边 */
+[data-skin="swiss"] .toast {
+  border-radius: 0;
+  border-left: 3px solid var(--border-strong);
+}
+
+[data-skin="swiss"] .toast.is-success {
+  border-left-color: var(--ok);
+}
+
+[data-skin="swiss"] .toast.is-error {
+  border-left-color: var(--danger);
+}
+
+/* 设计切换器：方块分段 */
+[data-skin="swiss"] .skin-switch {
+  border-radius: 0;
+}
+
+[data-skin="swiss"] .skin-opt.is-active {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* 空状态 */
+[data-skin="swiss"] .empty-mark {
+  border-radius: 0;
+  border: 2px solid var(--border-strong);
+}
+
+[data-skin="swiss"] .empty-mark svg {
+  color: var(--accent);
+}
+
+/* 下载条：瑞士网格风一律方角、粗分隔线 */
+[data-skin="swiss"] .dl {
+  border-radius: 0;
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+[data-skin="swiss"] .dl-bar {
+  border-radius: 0;
+  height: 3px;
+}
+
+[data-skin="swiss"] .dl-src {
+  letter-spacing: 0.02em;
+}

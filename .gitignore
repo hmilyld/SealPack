@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules
+dist
+dist-preview
+
+# Rust
+src-tauri/target
+src-tauri/gen/schemas
+
+# 回归探针的输出（截图 + 断言结果），每次运行重新生成
+docs/shots
+
+# Agent 工作区数据（会话记忆等本地状态，不属于项目源码）
+.workbuddy-ai
+
+# 本地环境与日志
+.env
+.env.*
+*.log
+
+# 系统杂物
+.DS_Store
+Thumbs.db
