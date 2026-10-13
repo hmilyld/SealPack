@@ -3,10 +3,14 @@ name: CI
 # 四条门禁：前端类型检查与构建、生成器一致性、Rust 格式/lint/单测、界面回归探针。
 # 探针与 Rust 都跑在 windows-latest 上 —— 这是唯一的目标平台，
 # 放在 ubuntu 上会引入 webkit2gtk 之类的系统依赖，测的也不是真实环境。
+#
+# 触发时机：PR、推 v* 标签（发版时门禁与 release.yml 的安装包构建并行跑）、手动触发。
+# 刻意不在推 main 时跑：日常提交靠本地的最小检查清单兜底，
+# CI 只在合入（PR）与发版（标签）这两个节点把关。
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 

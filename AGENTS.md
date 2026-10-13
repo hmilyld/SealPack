@@ -19,7 +19,7 @@ cd src-tauri && cargo test -- --ignored # network tests + fixture regeneration
 - **Rust does have gates now**: `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` are both clean and enforced by CI. Run `cargo fmt` before committing Rust. `defaults.rs`'s test module carries a scoped `#[allow(clippy::field_reassign_with_default)]` (the case-table style reads better there).
 - Single Rust test: `cargo test <filter>`, e.g. `cargo test defaults::`.
 - `check:render-parity` needs `docs/fixtures/render-fixtures.json`, which is committed. Regenerate it after touching either generator: `cargo test --lib dump_render_fixtures -- --ignored`.
-- **CI runs on every push to `main` and every PR** (`.github/workflows/ci.yml`, 3 jobs: frontend on ubuntu, Rust + UI probe on windows). Release is `.github/workflows/release.yml`: pushing a `v*` tag builds the NSIS installer and attaches it to a GitHub Release; `workflow_dispatch` builds it as a plain artifact. There are no git hooks, so run the checks locally before pushing.
+- **CI runs on every PR and every `v*` tag push** (`.github/workflows/ci.yml`, 3 jobs: frontend on ubuntu, Rust + UI probe on windows). Pushes to `main` do **not** trigger CI — the gates run on PRs and again at release time, in parallel with the installer build; local checks are the only safety net between them. Release is `.github/workflows/release.yml`: pushing a `v*` tag builds the NSIS installer and attaches it to a GitHub Release; `workflow_dispatch` builds it as a plain artifact. There are no git hooks, so run the checks locally before pushing.
 
 ## Minimum check before handing work back
 

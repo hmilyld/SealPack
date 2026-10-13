@@ -244,7 +244,7 @@ git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 
 `.github/workflows/` 下两个工作流。
 
-### `ci.yml` —— 推 `main` 与每个 PR
+### `ci.yml` —— 每个 PR、推 `v*` 标签或手动触发
 
 | Job | 运行环境 | 内容 |
 | --- | --- | --- |
@@ -256,7 +256,11 @@ git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 `webkit2gtk` 之类的系统依赖，而且测的不是真实环境。GitHub 的 Windows runner 自带 Edge，
 探针脚本会自己探测到它。
 
-`concurrency` 按分支分组且 `cancel-in-progress`：连续推几次不会排队跑一堆已经过时的任务。
+`concurrency` 按 ref 分组且 `cancel-in-progress`：连续推几次不会排队跑一堆已经过时的任务。
+
+推 `main` **不**触发 CI —— 日常提交靠本地的最小检查清单兜底，门禁只在合入（PR）
+与发版（`v*` 标签，与 `release.yml` 并行）两个节点把关；门禁失败不会撤回已发布的安装包，
+发版前请先在本地跑完检查清单。
 
 ### `release.yml` —— 推 `v*` 标签或手动触发
 
