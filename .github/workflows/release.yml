@@ -51,6 +51,24 @@ jobs:
       - name: 安装依赖（锁文件必须一致）
         run: pnpm install --frozen-lockfile
 
+      - name: 核对标签与版本号一致
+        # 安装包的文件名与界面上的版本号来自 tauri.conf.json，标签只是触发器；
+        # 两者不一致的话，Release 标着 v0.2.0、装出来的却是 0.1.0，非常误导。
+        # 只在标签触发时核对（workflow_dispatch 没有标签可对）。
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          PKG=$(node -p "require('./package.json').version")
+          echo "标签版本：$TAG　tauri.conf.json：$CONF　package.json：$PKG"
+          if [ "$TAG" != "$CONF" ] || [ "$TAG" != "$PKG" ]; then
+            echo "版本号不一致：标签 v$TAG，但配置里是 $CONF / $PKG" >&2
+            echo "请先把三处版本号都改到 $TAG 再打标签" >&2
+            exit 1
+          fi
+
       - name: 构建（前端 → Rust → NSIS）
         run: pnpm run app:build
 

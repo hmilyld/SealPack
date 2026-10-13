@@ -189,11 +189,20 @@ ConfuserEx 的 16 个文件一个都不能少 —— 这两条只有拿真包才
 pnpm run app:build    # 产出 NSIS 安装包，位于 src-tauri/target/release/bundle/nsis/
 ```
 
-CI 里由 `release.yml` 跑同一条命令（推 `v*` 标签时自动附到 Release）。本地打标签即可发版：
+CI 里由 `release.yml` 跑同一条命令。**发版流程**：
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+# 1. 三处版本号一起改（release.yml 会核对，不一致直接失败）：
+#    package.json / src-tauri/tauri.conf.json / src-tauri/Cargo.toml
+# 2. 提交、推送，然后打标签：
+git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 ```
+
+推 `v*` 标签会自动构建并创建 GitHub Release，安装包作为附件挂上去。
+
+**注意：安装包的文件名与界面上的版本号来自 `tauri.conf.json` 的 `version`，标签只是触发器。**
+忘记改版本号的话，Release 标着 v0.2.0、装出来的却是 0.1.0 —— 所以 `release.yml`
+里有一道「标签与版本号一致」的核对，不一致直接失败。
 
 `tauri.conf.json` 里 `targets: ["nsis"]`、`installMode: "currentUser"`（装到当前用户目录，不需要管理员权限）。
 `bundle.resources` 包含 `resources/tools`（内置的 ILMerge 与 ConfuserEx）与 `resources/isl`
