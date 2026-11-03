@@ -17,7 +17,7 @@
  *   默认 http://localhost:1420 与 docs/shots —— 需要先起 dev server（`npx vite`）。
  *   不起 dev server 的替代路径（推荐，避免占用 1420 端口）：
  *     pnpm run build:preview
- *     node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shots
+ *     node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/SealPack/dist-preview" docs/shots
  *
  * 注意：断言里比对毫秒时不要写死 "167ms"。构建产物会被 lightningcss 压成 ".167s"，
  * 因此统一用 isMs() 兼容两种写法。

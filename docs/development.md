@@ -75,7 +75,7 @@ pnpm run dev          # 然后浏览器打开 http://localhost:1420/preview.html
 
 ```bash
 pnpm run build:preview
-node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shots
+node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/SealPack/dist-preview" docs/shots
 ```
 
 也可以沿用 dev server：
@@ -286,7 +286,7 @@ git tag -a v0.2.0 -m "..." && git push origin v0.2.0
 ```bash
 pnpm run build:preview                                            # 含 tsc --noEmit
 pnpm run check:render-parity                                      # 若动过模板生成器
-node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shots
+node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/SealPack/dist-preview" docs/shots
 cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 

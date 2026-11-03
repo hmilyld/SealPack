@@ -26,7 +26,7 @@ cd src-tauri && cargo test -- --ignored # network tests + fixture regeneration
 ```bash
 pnpm run build:preview
 pnpm run check:render-parity                                      # if you touched either generator
-node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/dist-preview" docs/shots
+node scripts/ui-probe.mjs "file:///D:/Codespace/SealPack/SealPack/dist-preview" docs/shots
 cd src-tauri && cargo fmt && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 

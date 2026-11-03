@@ -3,7 +3,7 @@
 import os
 from PIL import Image, ImageDraw
 
-OUT = r"D:/Codespace/SealPack/src-tauri/icons"
+OUT = r"D:/Codespace/SealPack/SealPack/src-tauri/icons"
 S = 1024
 
 BG = (15, 23, 42, 255)        # slate-900
