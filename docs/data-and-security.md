@@ -9,7 +9,14 @@
 | 自动下载的工具 | `%APPDATA%\com.hmilyld.sealpack\tools\` |
 | 阶段执行时的临时文件 | `%APPDATA%\com.hmilyld.sealpack\work\<工程 id>\` |
 | 下载到的原始包（缓存） | `%APPDATA%\com.hmilyld.sealpack\work\downloads\` |
-| 界面偏好（皮肤 / 明暗 / 材质） | WebView 的 `localStorage`，键名 `sealpack:design` |
+| 构建历史 | 工程 JSON 的 `buildHistory`，最多 20 条 |
+| 升级基线清单 | 安装包输出目录的 `sealpack-manifest-<版本>.json` |
+| 界面偏好（明暗 / 材质） | WebView 的 `localStorage`，键名 `sealpack:theme` |
+| 用户主动保存的日志 | 用户选择的路径（UTF-8 with BOM） |
+
+基线清单只记录相对路径、大小与 SHA-256，以及 AppId / 版本 / 安装模式等元数据；**不含口令、不含文件内容**。它和安装包放在同一个输出目录，方便下一次升级直接比对；删除它不会影响已装程序，只是需要重新出一次完整包或手动选旧版本目录。
+
+删除工程只删 `projects\<id>.json`，不会删除主程序、输出目录里的安装包、校验清单或日志。界面上的删除确认会明确写出这一点。
 
 `work\` 下的工程目录会在**程序启动时**清理超过 24 小时的（跳过 `downloads\` 缓存）——
 异常退出（强杀、断电）可能留下临时文件，而加密配置与打包脚本里含明文口令。
@@ -73,6 +80,21 @@
 **新增敏感参数时必须同步这张表** —— 只认一种形态的话，将来加进来的参数会静默漏出去。
 表的内容由单测逐键断言。
 
+「保存日志」只把**已经打码**的日志写到用户选择的路径；日志里仍可能包含本地路径、工程名、
+工具版本等信息，分享前请自行确认。
+
+## 构建历史
+
+`Project.buildHistory` 只记录时间、版本、阶段范围、状态、产物路径与一句摘要，**不记录口令**。
+它随工程 JSON 落盘，最多 20 条；删除工程时一起删除。历史里的产物路径可能已经失效，
+界面定位失败时会提示，而不是静默。
+
+## 取消构建
+
+`CancelState` 只保存一个布尔标志与当前子进程 PID。`cancel_build` 用 Windows 的
+`taskkill /PID <pid> /T /F` 杀掉整棵进程树，避免 ISCC 的子进程残留。
+取消不是失败：阶段状态是 `cancelled`，历史里也记 `cancelled`。
+
 ## 子进程与环境
 
 - 三个外部工具都以 `CREATE_NO_WINDOW` 启动，不会闪出控制台窗口。
@@ -83,12 +105,12 @@
 
 ## 渲染层的注入面
 
-界面里所有拼进 `innerHTML` 的动态文本都先过 `src/util.ts` 的 `esc()`（工程名、路径、工具输出等）。
-工程 Id 只允许 `[A-Za-z0-9-]`，因此不能借它做路径穿越（`store.rs::validate_id`）。
+前端是 React，动态文本默认走文本节点转义；**不要用 `dangerouslySetInnerHTML`** 渲染工程名、
+路径或工具输出。工程 Id 只允许 `[A-Za-z0-9-]`，因此不能借它做路径穿越（`store.rs::validate_id`）。
 
 CSP 是 `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'`：
 
-- 没有任何远程资源，字体全部本地打包；
-- `style-src` 允许内联样式（组件大量使用内联 `style` 属性做几何计算）；
+- 没有任何远程资源；字体使用系统 Segoe UI Variable / Cascadia Mono，不打包、不拉 CDN；
+- `style-src` 允许内联样式（Griffel 运行时注入 + 组件内联几何计算）；
 - `script-src 'self'` 不含 `'unsafe-inline'` —— `index.html` 里的首帧主题引导脚本能执行，
   依赖 Tauri 在构建时为内联脚本注入 CSP hash/nonce。**改动 CSP 时必须回归启动首帧。**

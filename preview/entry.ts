@@ -12,4 +12,4 @@
 // 动态 import 保证 mock 的安装先完成，再启动界面。
 import "./mock";
 
-void import("../src/main");
+void import("../src/main.tsx");

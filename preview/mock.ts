@@ -91,13 +91,41 @@ const project = {
   packageOptions,
   encryptConfig: renderEncryptConfig(encryptOptions),
   packageScript: renderPackageScript(packageOptions),
+  buildOptions: { artifact: "installer", baselinePath: "" },
+  schemaVersion: 3,
+  buildHistory: [
+    {
+      id: "history-sample",
+      startedAt: "2026-11-05T08:53:00.000Z",
+      finishedAt: "2026-11-05T08:53:27.000Z",
+      version: "2.5.0.1",
+      scope: "all",
+      artifact: "installer",
+      status: "ok",
+      artifacts: [
+        `${ROOT}\\SampleTool.exe`,
+        `${ROOT}\\SampleTool.exe`,
+        "D:\\Projects\\SampleTool\\Setup\\SampleTool-安装包-2.5.0.1.exe",
+        "D:\\Projects\\SampleTool\\Setup\\sealpack-manifest-2.5.0.1.json",
+        "D:\\Projects\\SampleTool\\Setup\\checksums-sha256.txt",
+      ],
+      message: "合并完成，已并入 3 个程序集；加密完成；安装包打包完成",
+    },
+  ],
 };
 
-const file = (name: string) => ({ name, path: `${ROOT}\\${name}`, isDir: false, children: [] });
-const fileIn = (dir: string, name: string) => ({
+const file = (name: string, size = 0) => ({
+  name,
+  path: `${ROOT}\\${name}`,
+  isDir: false,
+  size,
+  children: [],
+});
+const fileIn = (dir: string, name: string, size = 0) => ({
   name,
   path: `${ROOT}\\${dir}\\${name}`,
   isDir: false,
+  size,
   children: [],
 });
 
@@ -105,22 +133,43 @@ const tree = {
   name: "Release",
   path: ROOT,
   isDir: true,
+  size: 0,
   children: [
     {
       name: "libs",
       path: `${ROOT}\\libs`,
       isDir: true,
-      children: [fileIn("libs", "NLog.dll"), fileIn("libs", "protobuf-net.dll")],
+      size: 0,
+      children: [
+        fileIn("libs", "NLog.dll", 600_000),
+        fileIn("libs", "protobuf-net.dll", 1_100_000),
+      ],
     },
-    file("SampleTool.exe"),
-    file("Newtonsoft.Json.dll"),
-    file("NPOI.dll"),
-    file("ICSharpCode.SharpZipLib.dll"),
-    file("EntityFramework.dll"),
-    file("SampleTool.pdb"),
-    file("SampleTool.exe.config"),
-    file("readme.txt"),
+    file("SampleTool.exe", 4_200_000),
+    file("Newtonsoft.Json.dll", 2_100_000),
+    file("NPOI.dll", 1_800_000),
+    file("ICSharpCode.SharpZipLib.dll", 900_000),
+    file("EntityFramework.dll", 1_200_000),
+    file("SampleTool.pdb", 8_700_000),
+    file("SampleTool.exe.config", 12_000),
+    file("readme.txt", 2_000),
   ],
+};
+
+/** 与 Rust excludes::matches 同义的轻量通配符匹配（仅用于预览计数）。 */
+const matchPattern = (relative: string, pattern: string): boolean => {
+  const rel = relative.replace(/\//g, "\\").toLowerCase();
+  const pat = pattern.replace(/\//g, "\\").toLowerCase();
+  const target = pat.includes("\\") ? rel : (rel.split("\\").pop() ?? rel);
+  const escaped = pat
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\\\*/g, ".*")
+    .replace(/\\\?/g, ".");
+  try {
+    return new RegExp(`^${escaped}$`).test(target);
+  } catch {
+    return false;
+  }
 };
 
 // ---------------------------------------------------------------- 事件派发
@@ -319,6 +368,13 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
     ["${version}", "版本号"],
     ["${password}", "安装包密码"],
     ["${ignore}", "打包排除项"],
+    ["${files}", "文件段（完整包 / 升级包）"],
+    ["${installDelete}", "升级包删除段"],
+    ["${artifactSetup}", "升级包 Setup 指令"],
+    ["${artifactCode}", "升级包 [Code]"],
+    ["${artifactLabel}", "产物标签：安装包 / 升级包"],
+    ["${runSection}", "[Run] 段；升级包为空"],
+    ["${baselineVersion}", "升级基线版本"],
   ],
   // 与 Rust 侧一致：工程列表与「读不出来的文件」一起返回
   list_projects: () => ({ projects: [project], unreadable: [] }),
@@ -345,28 +401,183 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
     const pkg = (p.packageOptions ?? {}) as Record<string, unknown>;
     const checksum = String(pkg.checksum ?? "none");
 
+    const buildOptions = (p.buildOptions ?? {}) as Record<string, unknown>;
+    const artifact = String(buildOptions.artifact ?? "installer");
     const outputs: Record<string, string[]> = {
       merge: [`${ROOT}\\SampleTool.exe`],
       encrypt: [`${ROOT}\\SampleTool.exe`],
-      package: ["D:\\Projects\\SampleTool\\Setup\\示例工具-安装包-1.4.2.0.exe"],
+      package:
+        artifact === "upgrade"
+          ? ["D:\\Projects\\SampleTool\\Setup\\示例工具-升级包-1.4.2.0.exe"]
+          : artifact === "both"
+            ? [
+                "D:\\Projects\\SampleTool\\Setup\\示例工具-安装包-1.4.2.0.exe",
+                "D:\\Projects\\SampleTool\\Setup\\示例工具-升级包-1.4.2.0.exe",
+              ]
+            : ["D:\\Projects\\SampleTool\\Setup\\示例工具-安装包-1.4.2.0.exe"],
     };
 
     const artifacts = [...(outputs[stage] ?? [])];
-    // 与 Rust 侧一致：开了校验清单，打包阶段会多产出一个 checksums-<算法>.txt
+    // 与 Rust 侧一致：开了校验清单，打包阶段会多产出一个 checksums-*.txt
     if (stage === "package" && checksum !== "none") {
-      artifacts.push(`D:\\Projects\\SampleTool\\Setup\\checksums-${checksum}.txt`);
+      const name =
+        artifact === "upgrade"
+          ? `checksums-upgrade-${checksum}.txt`
+          : artifact === "both"
+            ? `checksums-both-${checksum}.txt`
+            : `checksums-${checksum}.txt`;
+      artifacts.push(`D:\\Projects\\SampleTool\\Setup\\${name}`);
     }
 
     return {
       stage,
       status: "ok",
+      artifact: stage === "package" ? artifact : "none",
       exitCode: 0,
       message: `预览：模拟${stage} 完成（浏览器里不会真的调用外部工具）`,
       artifacts,
     };
   },
   scan_tree: () => tree,
+  plan_upgrade: (args) => {
+    const p = { ...project, ...((args.project ?? {}) as object) } as typeof project;
+    const buildOptions = (p.buildOptions ?? {}) as Record<string, unknown>;
+    const artifact = String(buildOptions.artifact ?? "installer");
+    const empty = {
+      artifact,
+      baseline: null,
+      candidates: [],
+      files: [],
+      newCount: 0,
+      modifiedCount: 0,
+      unchangedCount: 0,
+      deletedCount: 0,
+      totalBytes: 0,
+      truncated: false,
+      error: "",
+      warnings: [],
+    };
+    if (artifact === "installer") return empty;
+
+    const files: { path: string; size: number }[] = [];
+    const walk = (node: { isDir: boolean; path: string; size?: number; children?: unknown[] }) => {
+      if (node.isDir) {
+        for (const child of node.children ?? []) walk(child as typeof node);
+        return;
+      }
+      files.push({ path: node.path, size: node.size ?? 0 });
+    };
+    walk(tree);
+
+    const entries = files.map((file) => {
+      const relative = file.path.replace(`${ROOT}\\`, "");
+      const lower = relative.toLowerCase();
+      const status =
+        lower === "sampletool.exe"
+          ? "modified"
+          : lower === "libs\\protobuf-net.dll"
+            ? "new"
+            : "unchanged";
+      return {
+        path: relative,
+        status,
+        size: file.size,
+        oldSize: status === "unchanged" ? file.size : 0,
+      };
+    });
+    entries.push({ path: "old-helper.dll", status: "deleted", size: 0, oldSize: 320_000 });
+
+    const newCount = entries.filter((entry) => entry.status === "new").length;
+    const modifiedCount = entries.filter((entry) => entry.status === "modified").length;
+    const deletedCount = entries.filter((entry) => entry.status === "deleted").length;
+    const unchangedCount = entries.filter((entry) => entry.status === "unchanged").length;
+    const totalBytes = entries
+      .filter((entry) => entry.status === "new" || entry.status === "modified")
+      .reduce((sum, entry) => sum + entry.size, 0);
+    const baseline = {
+      path: "D:\\Projects\\SampleTool\\Setup\\sealpack-manifest-1.4.1.0.json",
+      appId: "6f3a1c2e-8b47-5d91-9a04-2c7be5f0d318",
+      appName: p.name,
+      version: "1.4.1.0",
+      createdAt: Math.floor(Date.now() / 1000) - 86_400,
+      fileCount: entries.length,
+      totalBytes: files.reduce((sum, file) => sum + file.size, 0),
+      requireAdmin: false,
+      packagingMode: "single",
+      uninstallable: true,
+      source: "manifest",
+    };
+
+    return {
+      ...empty,
+      baseline,
+      candidates: [baseline],
+      files: entries,
+      newCount,
+      modifiedCount,
+      unchangedCount,
+      deletedCount,
+      totalBytes,
+    };
+  },
+  preflight: (args) => {
+    const p = { ...project, ...((args.project ?? {}) as object) } as typeof project;
+    const artifact = String(
+      ((p.buildOptions ?? {}) as Record<string, unknown>).artifact ?? "installer",
+    );
+    const checks = [
+      { id: "name", label: "工程名称", status: "ok", detail: p.name },
+      { id: "exe", label: "主程序", status: "ok", detail: p.exeFile },
+      { id: "root", label: "主程序目录", status: "ok", detail: p.rootPath },
+      { id: "version", label: "版本号", status: "ok", detail: p.version },
+      {
+        id: "appId",
+        label: "应用标识",
+        status: p.packageOptions.appId ? "ok" : "warn",
+        detail: p.packageOptions.appId || "尚未推导 AppId",
+      },
+      { id: "output", label: "输出目录", status: "ok", detail: p.outputDir },
+      { id: "password", label: "安装包口令", status: "ok", detail: "口令设置可用" },
+      {
+        id: "merge",
+        label: "合并项",
+        status: "ok",
+        detail: `${p.mergeDlls.length} 个程序集将合并进主程序`,
+      },
+      {
+        id: "excludes",
+        label: "排除项",
+        status: "ok",
+        detail: `${p.excludePaths.length} 项自定义排除`,
+      },
+      { id: "template", label: "打包脚本", status: "ok", detail: "必需占位符完整" },
+      { id: "encryptConfig", label: "加密配置", status: "ok", detail: "配置已生成" },
+      { id: "tool:ilmerge", label: "ILMerge", status: "ok", detail: "预览环境" },
+      { id: "tool:confuser", label: "ConfuserEx", status: "ok", detail: "预览环境" },
+      { id: "tool:iscc", label: "Inno Setup", status: "ok", detail: "预览环境" },
+      { id: "dotnet", label: ".NET Framework", status: "ok", detail: "已安装" },
+      ...(artifact !== "installer"
+        ? [
+            {
+              id: "upgrade",
+              label: "升级包",
+              status: "ok",
+              detail: "基线 1.4.1.0 · 新增 1 / 修改 1 / 删除 1 / 未变 8",
+            },
+          ]
+        : []),
+    ];
+    return {
+      checks,
+      hasError: checks.some((check) => check.status === "error"),
+      hasWarning: checks.some((check) => check.status === "warn"),
+    };
+  },
+  cancel_build: () => undefined,
+  save_log: () => undefined,
   exe_version: () => "1.4.2.0",
+  // 智能重命名的预填来源；故意与当前工程名不同，便于预览里看出变化
+  exe_product_name: () => "示例工具 Pro",
   // 与 Rust 侧同义：由主程序推导的稳定应用标识。预览里给固定值，
   // 这样每次点「选择主程序」得到的结果都一样（便于断言与肉眼比对）。
   exe_app_id: () => "6f3a1c2e-8b47-5d91-9a04-2c7be5f0d318",
@@ -392,7 +603,48 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
       seen.add(key);
       return true;
     });
-    return { auto, custom, combined: combined.join(",") };
+
+    // 与 Rust excludes::plan 同义的轻量计数，供预览页显示真实数字
+    const files: { path: string; size: number }[] = [];
+    const walk = (node: { isDir: boolean; path: string; size?: number; children?: unknown[] }) => {
+      if (node.isDir) {
+        for (const child of node.children ?? []) {
+          walk(child as typeof node);
+        }
+        return;
+      }
+      files.push({ path: node.path, size: node.size ?? 0 });
+    };
+    walk(tree);
+
+    let packedCount = 0;
+    let packedBytes = 0;
+    let excludedCount = 0;
+    const ruleMatched: string[] = [];
+    for (const file of files) {
+      const relative = file.path.replace(`${p.rootPath}\\`, "");
+      const isMain = file.path.toLowerCase() === p.exeFile.toLowerCase();
+      const autoHit = auto.find((pattern) => matchPattern(relative, pattern));
+      const customHit = custom.find((pattern) => matchPattern(relative, pattern));
+      if (!isMain && (autoHit || customHit)) {
+        excludedCount += 1;
+        if (customHit && /[*?]/.test(customHit)) ruleMatched.push(relative);
+      } else {
+        packedCount += 1;
+        packedBytes += file.size;
+      }
+    }
+
+    return {
+      auto,
+      custom,
+      combined: combined.join(","),
+      packedCount,
+      packedBytes,
+      excludedCount,
+      truncated: false,
+      ruleMatched,
+    };
   },
   // 注册事件监听。transformCallback 直接把函数本身当 id 返回（见文件末尾），
   // 所以这里拿到的是可调用的回调，按事件名存起来，emitEvent 时再叫。
@@ -439,11 +691,11 @@ const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
 // 那个类名早已不存在，导致轮询永远不退出、反复点按钮叠出一堆对话框。
 if (new URLSearchParams(location.search).get("dialog") === "settings") {
   const timer = window.setInterval(() => {
-    if (document.querySelector(".overlay")) {
+    if (document.querySelector('[role="dialog"]')) {
       window.clearInterval(timer);
       return;
     }
-    document.querySelector<HTMLElement>("#settings-btn")?.click();
+    document.querySelector<HTMLElement>('button[title^="设置"]')?.click();
   }, 100);
   window.setTimeout(() => window.clearInterval(timer), 10000);
 }

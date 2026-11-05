@@ -142,7 +142,7 @@ async function runSteps(steps = []) {
 /**
  * 截图前冻结动画与过渡。
  *
- * 终端皮肤有 CSS 扫描线动画、设置页的下载条在推进 —— 不冻结的话每次抓图都会得到
+ * 设置页的下载条、Toast 进出场都在推进 —— 不冻结的话每次抓图都会得到
  * 「看起来一样、字节不同」的产物，重抓一次就多一份无意义的 diff。
  * 冻结后同一份代码抓出来的图逐字节一致。
  */
@@ -164,7 +164,7 @@ async function shoot({ name, path, prepare }) {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     const ready = await evaluate(
-      `document.readyState === "complete" && !!document.querySelector("#steps")`,
+      `document.readyState === "complete" && !!document.querySelector("[data-step]")`,
     ).catch(() => false);
     if (ready) break;
     await sleep(100);
@@ -179,50 +179,36 @@ async function shoot({ name, path, prepare }) {
   console.log(`  · ${name}.png`);
 }
 
-/** 打开某个向导步骤并等面板稳定（面板有 display:none → flex 的过渡） */
-const step = (id) => `.step[data-step="${id}"]`;
+/** 打开某个向导步骤（步骤条按钮带 `data-step`） */
+const step = (id) => `[data-step="${id}"]`;
 
 console.log(`抓取 README 截图 → ${OUT}`);
 
-await shoot({ name: "01-setup", path: "/preview.html?skin=swiss&theme=light" });
+await shoot({ name: "01-setup", path: "/preview.html?theme=light" });
 await shoot({
   name: "02-merge",
-  path: "/preview.html?skin=swiss&theme=light",
+  path: "/preview.html?theme=light",
   prepare: [{ selector: step("merge"), wait: 1200 }],
 });
 await shoot({
   name: "03-encrypt",
-  path: "/preview.html?skin=swiss&theme=light",
+  path: "/preview.html?theme=light",
   prepare: [{ selector: step("encrypt"), wait: 900 }],
 });
 await shoot({
   name: "04-package",
-  path: "/preview.html?skin=swiss&theme=light",
+  path: "/preview.html?theme=light",
   prepare: [{ selector: step("package"), wait: 900 }],
 });
 await shoot({
   name: "05-run",
-  path: "/preview.html?skin=swiss&theme=light",
-  prepare: [
-    { selector: step("run"), wait: 700 },
-    // 跑一遍「全部执行」，让产出文件与状态徽标都出现在图里
-    { selector: '[data-act="run-all"]', wait: 2200 },
-  ],
-});
-await shoot({
-  name: "06-terminal-dark",
-  path: "/preview.html?skin=terminal&theme=dark",
-  prepare: [{ selector: step("merge"), wait: 1200 }],
+  path: "/preview.html?theme=light",
+  prepare: [{ selector: step("run"), wait: 900 }],
 });
 await shoot({
   name: "07-settings",
-  path: "/preview.html?skin=swiss&theme=light",
-  prepare: [
-    { selector: "#settings-btn", wait: 1200 },
-    // 点一次下载并等它跑完（mock 约 500ms 结束）。**必须等终态** ——
-    // 停在进度条中途的话，抓到的百分比取决于当次时序，图会每次都不一样。
-    { selector: ".overlay .tool-row:last-child [data-dl]", wait: 1400 },
-  ],
+  path: "/preview.html?theme=light",
+  prepare: [{ selector: 'button[title^="设置"]', wait: 1200 }],
 });
 
 ws.close();

@@ -21,6 +21,24 @@ impl Stage {
     }
 }
 
+/// 一次构建的历史记录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildHistoryEntry {
+    pub id: String,
+    pub started_at: String,
+    pub finished_at: String,
+    pub version: String,
+    /// all | merge | encrypt | package
+    pub scope: String,
+    /// installer | upgrade | both | none
+    pub artifact: String,
+    /// ok | failed | cancelled | skipped
+    pub status: String,
+    pub artifacts: Vec<String>,
+    pub message: String,
+}
+
 /// 一个工程的完整配置。持久化为 `<id>.json`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +69,55 @@ pub struct Project {
     pub encrypt_config: String,
     /// Inno Setup 打包脚本（.iss 内容）
     pub package_script: String,
+    /// 构建产物与升级基线。它不参与模板生成，只决定打包阶段出哪种产物。
+    pub build_options: BuildOptions,
+    /// 工程文件结构版本；旧文件没有这一项时按 1 处理，再由 store 迁移到 3
+    #[serde(default = "schema_version_v1")]
+    pub schema_version: u32,
+    /// 最近 20 次构建记录（超出由前端裁剪）
+    pub build_history: Vec<BuildHistoryEntry>,
+}
+
+/// 构建产物设置。
+///
+/// 升级包不是新的构建阶段：合并 / 加密完全不变，区别只在打包阶段展开的
+/// `[Files]` / `[InstallDelete]` 与向导指令。`baseline_path` 为空表示自动取
+/// 输出目录里最新的 manifest；也可以指定某个 manifest 文件或旧版本目录。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildOptions {
+    /// installer | upgrade | both
+    pub artifact: String,
+    /// 升级基线：manifest 文件或旧版本目录；空 = 自动
+    pub baseline_path: String,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            artifact: "installer".into(),
+            baseline_path: String::new(),
+        }
+    }
+}
+
+impl BuildOptions {
+    /// 白名单归一化，避免手改 JSON 写出不存在的产物类型。
+    pub fn artifact(&self) -> &'static str {
+        match self.artifact.to_ascii_lowercase().as_str() {
+            "upgrade" => "upgrade",
+            "both" => "both",
+            _ => "installer",
+        }
+    }
+
+    pub fn includes_upgrade(&self) -> bool {
+        matches!(self.artifact(), "upgrade" | "both")
+    }
+
+    pub fn includes_installer(&self) -> bool {
+        matches!(self.artifact(), "installer" | "both")
+    }
 }
 
 /// 加密选项：把「要不要某种保护」变成开关 + 参数，用户不必理解 ConfuserEx 的
@@ -358,6 +425,10 @@ impl EncryptOptions {
 // 这些字段没有 serde 的 `default`：工程 JSON 由本程序完整写出，
 // 缺字段说明文件被改坏了，应当报错而不是悄悄补一个默认值。
 
+fn schema_version_v1() -> u32 {
+    1
+}
+
 fn preset_normal() -> String {
     "normal".into()
 }
@@ -469,7 +540,35 @@ impl Project {
             .map(|d| relative_to(&self.root_path, d))
             .collect();
         items.push(format!("{}.bakup", self.exe_stem()));
+        if let Some(output) = self.output_dir_ignore() {
+            items.push(output);
+        }
         items
+    }
+
+    /// 输出目录位于主程序目录内时，把它排除出打包范围。
+    ///
+    /// 否则上一轮生成的安装包会被下一轮 `Source: "{root}\*"` 打进新包里，
+    /// 而且增量基线也会把构建产物当成源文件。
+    pub fn output_dir_ignore(&self) -> Option<String> {
+        if self.output_dir.trim().is_empty() {
+            return None;
+        }
+
+        let trim = |value: &str| value.replace('/', "\\").trim_end_matches('\\').to_string();
+        if trim(&self.root_path).eq_ignore_ascii_case(&trim(&self.output_dir)) {
+            return None;
+        }
+        if !is_under(&self.root_path, &self.output_dir) {
+            return None;
+        }
+
+        let relative = relative_to(&self.root_path, &self.output_dir);
+        if relative.is_empty() {
+            None
+        } else {
+            Some(format!("{relative}\\*"))
+        }
     }
 
     /// 用户手工添加的排除项，去掉空白项。
@@ -516,17 +615,74 @@ pub fn relative_to(root: &str, full: &str) -> String {
     full
 }
 
+/// `full` 是否位于 `root` 之下（大小写不敏感，多要求一位分隔符，
+/// 避免把 `D:\AppExtra` 误判成在 `D:\App` 之下）。
+pub fn is_under(root: &str, full: &str) -> bool {
+    let norm = |s: &str| s.replace('/', "\\").trim_end_matches('\\').to_string();
+    let root = norm(root);
+    let full = norm(full);
+    if root.is_empty() || full.len() <= root.len() {
+        return false;
+    }
+    let prefix = format!("{root}\\");
+    full.get(..prefix.len())
+        .map(|head| head.eq_ignore_ascii_case(&prefix))
+        .unwrap_or(false)
+}
+
 /// 打包排除项的预览：界面要能分别显示「自动带入的」与「你添加的」，
 /// 并让用户看到最终写进 Inno `Excludes` 的字符串长什么样。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IgnorePreview {
-    /// 由前两步自动得出：待合并的程序集 + 主程序备份
+    /// 由前两步自动得出：待合并的程序集 + 主程序备份 + 根目录内的输出目录
     pub auto: Vec<String>,
     /// 用户手工添加的
     pub custom: Vec<String>,
     /// 最终传给 Inno `Excludes` 的值
     pub combined: String,
+    /// 实际会进入安装包的文件数（含主程序）
+    pub packed_count: usize,
+    /// 实际会进入安装包的字节数
+    pub packed_bytes: u64,
+    /// 被排除的文件数（自动 + 自定义 + 通配符命中）
+    pub excluded_count: usize,
+    /// 目录超过扫描预算，计数可能不完整
+    pub truncated: bool,
+    /// 被自定义通配符规则命中的相对路径（供树表锁定显示）
+    pub rule_matched: Vec<String>,
+}
+
+/// 构建预检中的一项。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreflightCheck {
+    pub id: String,
+    pub label: String,
+    /// ok | info | warn | error
+    pub status: String,
+    pub detail: String,
+}
+
+/// 构建预检报告：界面据此禁用「全部执行」或在有警告时弹一次确认。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreflightReport {
+    pub checks: Vec<PreflightCheck>,
+    pub has_error: bool,
+    pub has_warning: bool,
+}
+
+impl PreflightReport {
+    pub fn new(checks: Vec<PreflightCheck>) -> Self {
+        let has_error = checks.iter().any(|check| check.status == "error");
+        let has_warning = checks.iter().any(|check| check.status == "warn");
+        Self {
+            checks,
+            has_error,
+            has_warning,
+        }
+    }
 }
 
 /// 单个阶段的执行结果
@@ -534,8 +690,11 @@ pub struct IgnorePreview {
 #[serde(rename_all = "camelCase")]
 pub struct StageOutcome {
     pub stage: Stage,
-    /// ok | skipped | failed
+    /// ok | skipped | failed | cancelled
     pub status: String,
+    /// 打包阶段的产物类型：none | installer | upgrade | both。
+    /// 合并 / 加密阶段固定为 none；前端据此写构建历史。
+    pub artifact: String,
     pub exit_code: Option<i32>,
     pub message: String,
     /// 产出文件
@@ -547,9 +706,21 @@ impl StageOutcome {
         Self {
             stage,
             status: "ok".into(),
+            artifact: "none".into(),
             exit_code: Some(0),
             message: message.into(),
             artifacts,
+        }
+    }
+
+    pub fn cancelled(stage: Stage, message: impl Into<String>) -> Self {
+        Self {
+            stage,
+            status: "cancelled".into(),
+            artifact: "none".into(),
+            exit_code: None,
+            message: message.into(),
+            artifacts: Vec::new(),
         }
     }
 
@@ -557,6 +728,7 @@ impl StageOutcome {
         Self {
             stage,
             status: "skipped".into(),
+            artifact: "none".into(),
             exit_code: None,
             message: message.into(),
             artifacts: vec![],
@@ -567,10 +739,17 @@ impl StageOutcome {
         Self {
             stage,
             status: "failed".into(),
+            artifact: "none".into(),
             exit_code,
             message: message.into(),
             artifacts: vec![],
         }
+    }
+
+    /// 打包阶段用：在构造结果时直接带上产物类型。
+    pub fn with_artifact(mut self, artifact: impl Into<String>) -> Self {
+        self.artifact = artifact.into();
+        self
     }
 }
 
@@ -601,6 +780,8 @@ pub struct FileNode {
     pub name: String,
     pub path: String,
     pub is_dir: bool,
+    /// 文件字节数；目录为 0（目录大小由前端汇总子项）
+    pub size: u64,
     pub children: Vec<FileNode>,
     /// 该子树因超出扫描预算（项数 / 深度）而被截断。
     /// 界面据此提示「只扫了一部分」，否则用户会以为目录里真的没有那些文件。
@@ -681,6 +862,9 @@ mod tests {
             package_options: PackageOptions::default(),
             encrypt_config: String::new(),
             package_script: String::new(),
+            build_options: BuildOptions::default(),
+            schema_version: 3,
+            build_history: Vec::new(),
         };
         assert_eq!(project.auto_ignores(), vec!["a.dll", "b.dll", "t.bakup"]);
         // 自定义项去空白，并与自动项按小写去重

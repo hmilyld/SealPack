@@ -17,6 +17,22 @@ export const esc = (value: string): string =>
 export const baseName = (path: string): string => path.replace(/^.*[\\/]/, "");
 
 /**
+ * 按 Windows 路径语义去重：分隔符统一、大小写不敏感，保留第一次出现的顺序。
+ * 构建历史里同一个主程序会同时被「合并」和「加密」两个阶段报告，必须去重。
+ */
+export function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const path of paths) {
+    const key = path.replace(/\//g, "\\").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(path);
+  }
+  return out;
+}
+
+/**
  * 把绝对路径转成相对 `root` 的路径；不在 `root` 下则原样返回。
  *
  * 与 Rust 侧 `model::relative_to` 的约定（两边必须一致）：

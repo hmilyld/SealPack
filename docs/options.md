@@ -23,6 +23,24 @@
 
 ---
 
+## 打包预设
+
+打包页顶部提供四档预设，减少从零勾选：
+
+| 预设 | 主要取值 |
+| --- | --- |
+| 标准发布 | `lzma2/max`、固实、单文件、加密 `yes`、桌面图标、装完运行、可卸载、SHA-256 |
+| 快速联调 | `lzma2/fast`、不固实、不加密、无校验、不建图标、装完不运行 |
+| 最小体积 | `lzma2/max`、固实、不加密、无校验、不建图标、装完不运行 |
+| 绿色版 | `portable`、`lzma2/max`、固实、不加密、无卸载、无图标、无校验 |
+
+预设不覆盖 `appId`、`signTool`、`requireAdmin` 等工程身份相关字段；套用后仍可逐项微调。
+当前值与某个预设完全一致时高亮该预设，否则显示「自定义」。
+
+> 打包页右侧的「产物」可选完整安装包 / 升级包 / 两者。升级包按基线自动计算差异，基线默认取输出目录里最新的 manifest；绿色版、分卷、关闭卸载程序的工程会被预检拦下。
+
+---
+
 ## 加密选项（ConfuserEx）
 
 共 36 项，按加密算法的三个族分成 5 组。
@@ -245,12 +263,19 @@ UUID 形状合法、只改大小写不算换产品、字段之间不会串味。
 | `${version}` | 版本号 |
 | `${password}` | 安装包口令 |
 | `${ignore}` | 打包排除项（待合并程序集 + 主程序备份，逗号分隔） |
+| `${files}` | 文件段：完整包展开为通配行，升级包展开为变更文件列表 |
+| `${installDelete}` | 升级包的 `[InstallDelete]` 段；完整包为空 |
+| `${artifactSetup}` | 升级包的 `[Setup]` 指令（跳过目录/就绪/完成页） |
+| `${artifactCode}` | 升级包的 `[Code]`（跳过任务页 + 校验旧版本） |
+| `${artifactLabel}` | 产物标签：安装包 / 升级包 |
+| `${runSection}` | `[Run]` 段；升级包为空 |
+| `${baselineVersion}` | 升级基线版本；完整包为空 |
 
 高级区顶部有可点击的占位符 chip，点一下插入到光标处。
 
 ### 打包脚本的关键结构
 
-生成的 `.iss` 里有两行 `Source`：
+文件段由 `${files}` 展开。完整包是两行 `Source`：
 
 ```
 Source: "${root}\${exe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -259,6 +284,23 @@ Source: "${root}\*"; Excludes: "${ignore},${exe}"; DestDir: "{app}"; Flags: igno
 
 第二行必须把主程序本身排除掉（`${exe}`），否则同一个文件会进包两次 —— Inno 会报重复文件，
 体积统计也会重复计数。`${ignore}` 至少含主程序备份，所以不会拼出以逗号开头的空项。
+
+升级包则展开成每个变更文件一行：
+
+```
+Source: "D:\App\lib\a.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+```
+
+删除项写入 `${installDelete}`：
+
+```
+[InstallDelete]
+Type: files; Name: "{app}\old\b.txt"
+```
+
+`${artifactCode}` 只出现在升级包里：`ShouldSkipPage(wpSelectTasks)` 跳过任务页，
+`InitializeSetup` 查 `<AppId>_is1` 卸载注册表；没有旧版本直接中止，版本不一致弹确认。
+`${runSection}` 在升级包里为空，避免零向导下仍出现安装后启动项。
 
 ---
 

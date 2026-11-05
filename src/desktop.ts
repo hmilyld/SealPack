@@ -137,9 +137,13 @@ export function installDesktopBehaviour(): () => void {
   window.addEventListener("dragover", onDragOver);
   window.addEventListener("drop", onDrop);
 
-  // 5. 右键菜单：默认全部禁用；具体区域（工程行、文件树、输入框、日志）
-  //    由 context-menu 模块自己挂监听并弹出应用内菜单。
-  const onContextMenu = (event: MouseEvent) => event.preventDefault();
+  // 5. 右键菜单：界面区域由自绘菜单接管；输入框 / 文本域保留系统原生编辑菜单
+  //    （剪切、复制、粘贴、拼写检查），这比自绘一套更符合桌面习惯。
+  const onContextMenu = (event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("input, textarea, [contenteditable='true']")) return;
+    event.preventDefault();
+  };
   window.addEventListener("contextmenu", onContextMenu);
 
   // 6. 双击空白处选中文字、三击全选段落这类行为在界面上没意义，交给 CSS 的 user-select 处理

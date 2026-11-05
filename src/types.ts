@@ -1,6 +1,6 @@
 export type Stage = "merge" | "encrypt" | "package";
 
-export type StageStatus = "idle" | "running" | "ok" | "skipped" | "failed";
+export type StageStatus = "idle" | "running" | "ok" | "skipped" | "failed" | "cancelled";
 
 /** 向导步骤。前四步是配置，最后一步是执行。 */
 export type StepId = "setup" | "merge" | "encrypt" | "package" | "run";
@@ -941,6 +941,137 @@ export const PACKAGE_GROUPS: OptGroup[] = [
   },
 ];
 
+/**
+ * 打包预设。
+ *
+ * 与加密预设同一套结构：只把常用字段摆到合理位置，工程相关的 AppId、
+ * 签名工具、权限要求不在这里覆盖，避免「点一下预设把工程身份改了」。
+ */
+export const PACKAGE_PRESETS: OptPreset[] = [
+  {
+    id: "release",
+    label: "标准发布",
+    hint: "常规对外发布：最高压缩、单文件安装、加密、桌面图标、装完可运行、生成 SHA-256 清单",
+    values: {
+      compression: "lzma2/max",
+      solidCompression: true,
+      packagingMode: "single",
+      encryption: "yes",
+      kdfIterations: 220000,
+      desktopIcon: true,
+      runAfterInstall: true,
+      uninstallable: true,
+      checksum: "sha256",
+    },
+  },
+  {
+    id: "dev",
+    label: "快速联调",
+    hint: "频繁出包：快速压缩、不加密、不生成校验清单，尽量缩短编译时间",
+    values: {
+      compression: "lzma2/fast",
+      solidCompression: false,
+      packagingMode: "single",
+      encryption: "no",
+      desktopIcon: false,
+      runAfterInstall: false,
+      uninstallable: true,
+      checksum: "none",
+    },
+  },
+  {
+    id: "small",
+    label: "最小体积",
+    hint: "只关心体积：最高压缩、固实、不加密、不建快捷方式、不自动运行",
+    values: {
+      compression: "lzma2/max",
+      solidCompression: true,
+      packagingMode: "single",
+      encryption: "no",
+      desktopIcon: false,
+      runAfterInstall: false,
+      uninstallable: true,
+      checksum: "none",
+    },
+  },
+  {
+    id: "portable",
+    label: "绿色版",
+    hint: "免安装：不写注册表、不生成卸载程序、不建快捷方式，解压即用",
+    values: {
+      compression: "lzma2/max",
+      solidCompression: true,
+      packagingMode: "portable",
+      encryption: "no",
+      desktopIcon: false,
+      runAfterInstall: false,
+      uninstallable: false,
+      checksum: "none",
+    },
+  },
+];
+
+export interface BuildHistoryEntry {
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  version: string;
+  scope: "all" | Stage;
+  artifact: ArtifactKind | "none";
+  status: "ok" | "failed" | "cancelled" | "skipped";
+  artifacts: string[];
+  message: string;
+}
+
+/** 打包产物：完整安装包 / 升级包 / 两者。 */
+export type ArtifactKind = "installer" | "upgrade" | "both";
+
+/** 构建产物与升级基线。它不参与 Inno 模板生成，只决定打包阶段怎么展开。 */
+export interface BuildOptions {
+  artifact: ArtifactKind;
+  /** 空 = 自动取输出目录里最新的 manifest；也可以指定 manifest 文件或旧版本目录 */
+  baselinePath: string;
+}
+
+/** 基线清单摘要（后端 manifest.rs）。 */
+export interface ManifestSummary {
+  path: string;
+  appId: string;
+  appName: string;
+  version: string;
+  createdAt: number;
+  fileCount: number;
+  totalBytes: number;
+  requireAdmin: boolean;
+  packagingMode: string;
+  uninstallable: boolean;
+  source: "manifest" | "directory";
+}
+
+export type UpgradeFileStatus = "new" | "modified" | "unchanged" | "deleted";
+
+export interface UpgradeDiffEntry {
+  path: string;
+  status: UpgradeFileStatus;
+  size: number;
+  oldSize: number;
+}
+
+/** 升级差异计划；error 非空表示不能生成升级包。 */
+export interface UpgradePlan {
+  artifact: ArtifactKind;
+  baseline: ManifestSummary | null;
+  candidates: ManifestSummary[];
+  files: UpgradeDiffEntry[];
+  newCount: number;
+  modifiedCount: number;
+  unchangedCount: number;
+  deletedCount: number;
+  totalBytes: number;
+  truncated: boolean;
+  error: string;
+  warnings: string[];
+}
 
 export interface Project {
   id: string;
@@ -957,6 +1088,12 @@ export interface Project {
   packageOptions: PackageOptions;
   encryptConfig: string;
   packageScript: string;
+  /** 构建产物与升级基线 */
+  buildOptions: BuildOptions;
+  /** 工程文件结构版本；Phase 2 起为 3 */
+  schemaVersion: number;
+  /** 最近 20 次构建记录 */
+  buildHistory: BuildHistoryEntry[];
 }
 
 /** 打包排除项预览：自动带入的 / 你添加的 / 最终写进 Inno Excludes 的字符串 */
@@ -964,11 +1101,37 @@ export interface IgnorePreview {
   auto: string[];
   custom: string[];
   combined: string;
+  /** 实际会进入安装包的文件数（含主程序） */
+  packedCount?: number;
+  /** 实际会进入安装包的字节数 */
+  packedBytes?: number;
+  /** 被排除的文件数（自动 + 自定义 + 通配符命中） */
+  excludedCount?: number;
+  /** 目录超过扫描预算，计数可能不完整 */
+  truncated?: boolean;
+  /** 被自定义通配符规则命中的相对路径（供树表锁定显示） */
+  ruleMatched?: string[];
+}
+
+/** 构建预检中的一项 */
+export interface PreflightCheck {
+  id: string;
+  label: string;
+  status: "ok" | "info" | "warn" | "error";
+  detail: string;
+}
+
+export interface PreflightReport {
+  checks: PreflightCheck[];
+  hasError: boolean;
+  hasWarning: boolean;
 }
 
 export interface StageOutcome {
   stage: Stage;
-  status: "ok" | "skipped" | "failed";
+  status: "ok" | "skipped" | "failed" | "cancelled";
+  /** 打包阶段的产物类型；合并 / 加密固定为 none */
+  artifact: ArtifactKind | "none";
   exitCode: number | null;
   message: string;
   artifacts: string[];
@@ -990,6 +1153,8 @@ export interface FileNode {
   name: string;
   path: string;
   isDir: boolean;
+  /** 文件字节数；目录为 0（目录大小由前端汇总子项） */
+  size?: number;
   children: FileNode[];
   /**
    * 该目录树因超出扫描预算（项数 / 深度）而被截断。

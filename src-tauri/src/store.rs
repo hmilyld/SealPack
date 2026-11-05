@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{bail, Context, Result};
@@ -6,6 +8,67 @@ use tauri::Manager;
 
 use crate::model::{Project, ProjectList};
 use crate::settings::Settings;
+
+/// 取消构建的共享状态：一个标志 + 当前子进程 PID。
+///
+/// 外部工具会再派生子进程（例如 ISCC），所以取消时必须杀**进程树**，
+/// 不能只杀父进程；Windows 上由 `taskkill /T /F` 完成。
+#[derive(Default)]
+pub struct CancelState {
+    cancelled: AtomicBool,
+    pid: Mutex<Option<u32>>,
+}
+
+/// 杀掉整个进程树。外部工具（尤其是 ISCC）会再派生子进程，
+/// 只杀父进程会留下孤儿编译器，导致下一次构建被文件占用卡住。
+pub fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+    }
+}
+
+impl CancelState {
+    pub fn reset(&self) {
+        self.cancelled.store(false, Ordering::SeqCst);
+        if let Ok(mut slot) = self.pid.lock() {
+            *slot = None;
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn set_pid(&self, pid: u32) {
+        if let Ok(mut slot) = self.pid.lock() {
+            *slot = Some(pid);
+        }
+    }
+
+    pub fn clear_pid(&self) {
+        if let Ok(mut slot) = self.pid.lock() {
+            *slot = None;
+        }
+    }
+
+    pub fn pid(&self) -> Option<u32> {
+        self.pid.lock().ok().and_then(|slot| *slot)
+    }
+}
 
 /// 应用级路径与运行期状态
 #[derive(Clone)]
@@ -22,6 +85,8 @@ pub struct AppState {
     pub isl_dir: PathBuf,
     /// 全局设置文件
     pub settings_file: PathBuf,
+    /// 取消构建的共享状态
+    pub cancel: Arc<CancelState>,
 }
 
 impl AppState {
@@ -51,6 +116,7 @@ impl AppState {
             user_tools_dir: strip_verbatim(data_dir.join("tools")),
             isl_dir: strip_verbatim(locate_dir(&resource_dir, "isl")),
             settings_file: strip_verbatim(data_dir.join("settings.json")),
+            cancel: Arc::new(CancelState::default()),
         })
     }
 
@@ -195,8 +261,39 @@ pub fn load_project(dir: &Path, id: &str) -> Result<Project> {
     let file = project_file(dir, id)?;
     let text = std::fs::read_to_string(&file)
         .with_context(|| format!("无法读取工程文件 {}", file.display()))?;
-    let project = serde_json::from_str(&text).context("工程文件格式不正确")?;
+
+    // 工程 JSON 是手可编辑的，但结构升级不能靠 `#[serde(default)]` 静默补字段
+    // （那会把真正的损坏也一起吞掉）。这里先把缺字段按版本补齐，再严格反序列化。
+    let mut value: serde_json::Value = serde_json::from_str(&text).context("工程文件格式不正确")?;
+    migrate_project(&mut value);
+    let project = serde_json::from_value(value).context("工程文件格式不正确")?;
     Ok(project)
+}
+
+fn migrate_project(value: &mut serde_json::Value) {
+    let version = value
+        .get("schemaVersion")
+        .and_then(|item| item.as_u64())
+        .unwrap_or(1);
+
+    if version < 2 {
+        if let Some(object) = value.as_object_mut() {
+            object
+                .entry("buildHistory")
+                .or_insert_with(|| serde_json::json!([]));
+            object.insert("schemaVersion".into(), serde_json::json!(2));
+        }
+    }
+
+    // v3：新增构建产物设置（完整包 / 升级包 / 两者 + 基线路径）。
+    if version < 3 {
+        if let Some(object) = value.as_object_mut() {
+            object.entry("buildOptions").or_insert_with(
+                || serde_json::json!({ "artifact": "installer", "baselinePath": "" }),
+            );
+            object.insert("schemaVersion".into(), serde_json::json!(3));
+        }
+    }
 }
 
 pub fn save_project(dir: &Path, project: &Project) -> Result<()> {
@@ -217,7 +314,7 @@ pub fn delete_project(dir: &Path, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{EncryptOptions, PackageOptions};
+    use crate::model::{BuildOptions, EncryptOptions, PackageOptions};
 
     fn sample_project(id: &str, name: &str) -> Project {
         Project {
@@ -234,7 +331,35 @@ mod tests {
             package_options: PackageOptions::default(),
             encrypt_config: String::new(),
             package_script: String::new(),
+            build_options: BuildOptions::default(),
+            schema_version: 3,
+            build_history: Vec::new(),
         }
+    }
+
+    #[test]
+    fn load_project_migrates_old_schema() {
+        let dir = std::env::temp_dir().join("sealpack-migrate");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let project = sample_project("11111111-2222-3333-4444-555555555555", "old");
+        let mut value = serde_json::to_value(&project).unwrap();
+        if let Some(object) = value.as_object_mut() {
+            object.remove("schemaVersion");
+            object.remove("buildHistory");
+            object.remove("buildOptions");
+        }
+        let file = project_file(&dir, &project.id).unwrap();
+        std::fs::write(&file, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+
+        let loaded = load_project(&dir, &project.id).unwrap();
+        assert_eq!(loaded.schema_version, 3);
+        assert!(loaded.build_history.is_empty());
+        assert_eq!(loaded.build_options.artifact, "installer");
+        assert!(loaded.build_options.baseline_path.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 去掉 Windows 的 `\\?\` verbatim 前缀；UNC 形式要转回普通共享路径。

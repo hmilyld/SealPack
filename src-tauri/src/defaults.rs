@@ -278,6 +278,11 @@ pub fn package_script(opts: &PackageOptions) -> String {
     out.push_str("#define MyAppName \"${name}\"\n");
     out.push_str("#define MyAppVersion \"${version}\"\n");
     out.push_str("#define MyAppExeName \"${exe}\"\n");
+    // 升级包的 [Code] 要用它拼卸载注册表键 <AppId>_is1。
+    // AppId 在 [Setup] 里是 `{GUID}` 形式，这里也带上花括号，注册表键才对得上。
+    out.push_str("#define MyAppId \"{${appId}}\"\n");
+    // 完整包里为空；升级包写入基线版本，安装时校验目标机器上的旧版本
+    out.push_str("#define MyBaselineVersion \"${baselineVersion}\"\n");
     out.push_str("#define MyAppPublisher \"hmilyld\"\n");
     out.push_str("#define MyAppURL \"https://hmilyld.com/\"\n\n");
 
@@ -297,7 +302,11 @@ pub fn package_script(opts: &PackageOptions) -> String {
     out.push_str("DisableProgramGroupPage=yes\n");
     out.push_str(&format!("PrivilegesRequired={privileges}\n"));
     out.push_str("OutputDir=${output}\n");
-    out.push_str("OutputBaseFilename={#MyAppName}-安装包-{#MyAppVersion}\n");
+    // 完整包展开成「安装包」，升级包展开成「升级包」；两者同时生成时文件名不会撞车。
+    out.push_str("OutputBaseFilename={#MyAppName}-${artifactLabel}-{#MyAppVersion}\n");
+    // 升级包在这里展开 DisableDirPage / DisableReadyPage / DisableFinishedPage 等指令；
+    // 完整包为空。必须留在 [Setup] 段内。
+    out.push_str("${artifactSetup}\n");
 
     // ---- 压缩
     out.push_str(&format!("Compression={compression}\n"));
@@ -400,13 +409,11 @@ pub fn package_script(opts: &PackageOptions) -> String {
     }
 
     out.push_str("[Files]\n");
-    out.push_str("Source: \"${root}\\${exe}\"; DestDir: \"{app}\"; Flags: ignoreversion\n");
-    // 主程序由上一行显式加入，`*` 这一行必须把它排除掉 —— 否则同一个文件会进包两次
-    // （Inno 会报重复文件，体积统计也会重复计数）。`${ignore}` 至少含主程序备份，
-    // 因此这里不会拼出以逗号开头的空项。
-    out.push_str(
-        "Source: \"${root}\\*\"; Excludes: \"${ignore},${exe}\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs\n\n",
-    );
+    // 完整包：主程序一行 + 通配符一行（主程序必须从 `*` 里排除，否则会进包两次）。
+    // 升级包：只列新增 / 修改的文件，保留相对目录。
+    out.push_str("${files}\n");
+    // 升级包在这里展开 [InstallDelete]（旧版本有、新版本没有的文件）；完整包为空。
+    out.push_str("${installDelete}\n");
 
     if !portable {
         out.push_str("[Icons]\n");
@@ -421,12 +428,12 @@ pub fn package_script(opts: &PackageOptions) -> String {
         out.push('\n');
     }
 
-    if opts.run_after_install && !portable {
-        out.push_str("[Run]\n");
-        out.push_str(
-            "Filename: \"{app}\\{#MyAppExeName}\"; Description: \"{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}\"; Flags: nowait postinstall skipifsilent\n",
-        );
-    }
+    // 完整包按「安装完成后启动」选项展开 [Run]；升级包必须为空 ——
+    // 零向导下没有完成页，postinstall 项是否执行在 Inno 里并不可靠。
+    out.push_str("${runSection}\n");
+
+    // 升级包的 [Code]（跳过任务页 + 校验旧版本）；完整包为空。
+    out.push_str("${artifactCode}\n");
 
     out
 }
@@ -739,18 +746,23 @@ mod tests {
     #[test]
     fn generated_script_is_not_empty_and_keeps_placeholders() {
         let out = package(PackageOptions::default());
-        assert!(out.contains("${ignore}"), "{out}");
         assert!(out.contains("${password}"), "{out}");
         assert!(out.contains("${output}"), "{out}");
+        // 打包阶段按产物类型展开的占位符
+        assert!(out.contains("${files}"), "{out}");
+        assert!(out.contains("${installDelete}"), "{out}");
+        assert!(out.contains("${artifactSetup}"), "{out}");
+        assert!(out.contains("${artifactCode}"), "{out}");
+        assert!(out.contains("${artifactLabel}"), "{out}");
+        assert!(out.contains("${runSection}"), "{out}");
+        assert!(out.contains("${baselineVersion}"), "{out}");
     }
 
-    /// 主程序由显式那一行加入，`*` 那行必须把它排除，否则同一文件进包两次
+    /// 文件清单由打包阶段按产物类型展开；完整包的两行由 `packaging.rs` 负责。
     #[test]
-    fn wildcard_source_excludes_the_main_exe() {
+    fn template_delegates_the_files_section() {
         let out = package(PackageOptions::default());
-        assert!(out.contains(r#"Excludes: "${ignore},${exe}""#), "{out}");
-        // 显式那一行仍然在，主程序不会因为被排除而漏掉
-        assert!(out.contains(r#"Source: "${root}\${exe}""#), "{out}");
+        assert!(out.contains("[Files]\n${files}\n"), "{out}");
     }
 
     // ---------------------------------------------------------------- Inno 边界值

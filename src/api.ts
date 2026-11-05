@@ -3,8 +3,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getVersion } from "@tauri-apps/api/app";
-import { open, type OpenDialogOptions } from "@tauri-apps/plugin-dialog";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { open, save, type OpenDialogOptions } from "@tauri-apps/plugin-dialog";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import type {
   EncryptOptions,
@@ -12,6 +12,7 @@ import type {
   IgnorePreview,
   LogEvent,
   PackageOptions,
+  PreflightReport,
   Project,
   ProjectList,
   RuntimeStatus,
@@ -21,6 +22,7 @@ import type {
   StageOutcome,
   ToolProgress,
   ToolStatus,
+  UpgradePlan,
 } from "./types";
 
 export const api = {
@@ -34,6 +36,8 @@ export const api = {
     invoke<StageOutcome>("run_stage", { project, stage }),
   scanTree: (root: string) => invoke<FileNode>("scan_tree", { root }),
   exeVersion: (path: string) => invoke<string>("exe_version", { path }),
+  /** 主程序版本信息里的 ProductName；拿不到就退回文件名（用于智能重命名） */
+  exeProductName: (path: string) => invoke<string>("exe_product_name", { path }),
   /** 由主程序推导稳定的应用标识（Inno 的 AppId），决定覆盖升级还是全新安装 */
   exeAppId: (path: string) => invoke<string>("exe_app_id", { path }),
   toolStatus: () => invoke<ToolStatus>("tool_status"),
@@ -47,9 +51,17 @@ export const api = {
     invoke<string>("render_encrypt_config", { options }),
   renderPackageScript: (options: PackageOptions) =>
     invoke<string>("render_package_script", { options }),
-  /** 打包排除项的预览（自动项 / 自定义项 / 最终 Excludes 字符串） */
+  /** 打包排除项的预览（自动项 / 自定义项 / 最终 Excludes 字符串 + 计数） */
   projectIgnores: (project: Project) => invoke<IgnorePreview>("project_ignores", { project }),
+  /** 构建前预检：路径、模板占位符、工具链、运行时 */
+  preflight: (project: Project) => invoke<PreflightReport>("preflight", { project }),
+  /** 计算升级差异（只读；会哈希整个主程序目录） */
+  planUpgrade: (project: Project) => invoke<UpgradePlan>("plan_upgrade", { project }),
   placeholders: () => invoke<[string, string][]>("placeholders"),
+  /** 取消当前正在执行的阶段（杀掉进程树） */
+  cancelBuild: () => invoke<void>("cancel_build"),
+  /** 把运行日志写到用户选择的位置 */
+  saveLog: (path: string, content: string) => invoke<void>("save_log", { path, content }),
 };
 
 // ---------------------------------------------------------------- 窗口控制
@@ -196,6 +208,21 @@ export function pickDirectory(title: string): Promise<string | null> {
   return openPicker({ multiple: false, directory: true, title });
 }
 
+/** 保存文件对话框。取消返回 null。 */
+export async function pickSavePath(
+  title: string,
+  defaultPath: string,
+  filters?: { name: string; extensions: string[] }[],
+): Promise<string | null> {
+  try {
+    const picked = await save({ title, defaultPath, filters });
+    return typeof picked === "string" ? picked : null;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`无法打开系统保存框：${reason}`);
+  }
+}
+
 /** 多选文件（打包排除项用：一次挑几个文件，不必来回开对话框）。 */
 export function pickFiles(title: string): Promise<string[]> {
   return openPickerMany({ multiple: true, directory: false, title });
@@ -211,4 +238,9 @@ export function pickFile(
 
 export async function reveal(path: string): Promise<void> {
   await revealItemInDir(path);
+}
+
+/** 在系统默认浏览器里打开外部链接。 */
+export async function openExternal(url: string): Promise<void> {
+  await openUrl(url);
 }

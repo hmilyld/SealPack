@@ -1,219 +1,98 @@
 /* ============================================================================
-   令牌层 — 所有视觉决策的唯一定义处
+   SealPack 应用级 token
    ---------------------------------------------------------------------------
-   :root 里是一套**完整的中性兜底值**。这不是多余的：CSS 自定义属性未定义时，
-   整条 `border: 1px solid var(--x)` 会因解析失败而失效（不是回退到可见的初始值），
-   表现为元素莫名没有边框。把全套令牌都给出兜底，就能保证
-   「切换设计后永远不会出现某个属性整体消失」这类跨皮肤冲突。
-   各皮肤只需覆盖它真正不同的部分。
+   Fluent UI React 负责组件内部的颜色/字体/状态；这里只定义「应用自己的」
+   布局、间距、字号、圆角、层级与少量 Windows 专用颜色。
+
+   规则：
+     · 间距只使用 4/8/12/16/20/24/32 这一套 4pt 刻度；
+     · 字号只使用 11/12/13/14/18/20；
+     · 组件里不写裸 hex / 裸 px（尺寸 token 除外）；
+     · Fluent 组件的颜色仍从 `tokens.*` 取，语义色集中在 theme/semantic.ts。
    ========================================================================== */
 
 :root {
-  /* ---- 字体栈：拉丁字形用打包字体，中文交给系统字体（打包字体都没有 CJK 字形） */
-  --font-display: "Instrument Sans", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+  /* ---- 窗口与布局 */
+  --app-titlebar-h: 40px;
+  --app-statusbar-h: 28px;
+  --app-caption-w: 46px;
+  --app-mark-size: 22px;
+  --app-icon-box: 20px;
+  --app-icon-box-sm: 16px;
+  --app-rail-w: 248px;
+  --app-row-h: 30px;
+  --app-control-h: 32px;
+  --app-stepnav-h: 56px;
+  --app-log-head-h: 36px;
+  --app-log-row-h: 20px;
+  --app-side-w: 320px;
+  --app-split-h: 420px;
+  --app-page-max: 1080px;
+  --app-page-pad: 20px 24px 24px;
+  --app-material-opacity: 64%;
+
+  /* ---- 间距（4pt 刻度） */
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 20px;
+  --app-space-6: 24px;
+  --app-space-7: 32px;
+
+  /* ---- 圆角 */
+  --app-radius-sm: 4px;
+  --app-radius-md: 6px;
+  --app-radius-lg: 8px;
+  --app-radius-xl: 10px;
+
+  /* ---- 字体角色
+     正文用 Segoe UI Variable Text；页面标题用 Display；路径 / 日志 / 代码用 Cascadia Mono。
+     不引远程字体，保持 CSP 与离线可用。 */
+  --app-font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
     sans-serif;
-  --font-body: var(--font-display);
-  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "Microsoft YaHei", monospace;
+  --app-font-display: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI",
+    "Microsoft YaHei", sans-serif;
+  --app-font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
 
-  /* ---- 尺寸
-     整体密度按「Windows 本地工具」而非「网页」来定：字号 12px、行高 1.38、
-     控件高 24–28px、内边距 4–12px。网页默认的 13–14px 字号 + 1.5 行高 +
-     16–24px 内边距会让界面显得空旷，是「网页感」的主要来源之一。 */
-  --titlebar-h: 40px;
-  --rail-w: 252px;
-  --mark-size: 22px;
-  --index-size: 26px;
-  --log-h: 116px;
-  --gap-1: 4px;
-  --gap-2: 8px;
-  --gap-3: 12px;
-  --gap-4: 14px;
-  /* 逻辑分组之间的分隔（加密/打包页里一组组选项的纵向间距）。
-     此前漏定义，var(--gap-5) 解析失败 → .opt-groups 的 gap 退化为 0，
-     各组选项框直接贴在一起，这是「分组名称与设置框没有间距」的主因。 */
-  --gap-5: 18px;
-  --tree-indent: 14px;
-  --tree-row-pad: 2px 5px;
-  --tree-tw: 14px;
-  --input-pad: 4px 7px;
-  --box-size: 12px;
-  --btn-pad: 5px 12px;
-  --btn-sm-pad: 3px 8px;
-  --btn-xs-pad: 2px 6px;
-  --dialog-pad: 14px;
+  /* ---- 字号 / 行高
+     正文 14 / 20 与 Fluent 的 Base300 对齐；11 / 12 只用于元数据与辅助说明。 */
+  --app-font-meta: 11px;
+  --app-font-small: 12px;
+  --app-font-body: 14px;
+  --app-font-body-lg: 14px;
+  --app-font-heading: 18px;
+  --app-font-title: 20px;
 
-  /* ---- 形状 */
-  --radius: 4px;
-  --radius-sm: 3px;
-  --radius-pill: 999px;
-  --border-w: 1px;
-  --chip-border-w: 1px;
-  --box-border-w: 1px;
-  --chip-radius: 3px;
-  --box-radius: 2px;
-  --btn-radius: 4px;
-  --index-radius: 4px;
-  --status-radius: 3px;
+  --app-line-meta: 16px;
+  --app-line-small: 18px;
+  --app-line-body: 20px;
+  --app-line-body-lg: 21px;
+  --app-line-heading: 26px;
+  --app-line-title: 28px;
 
-  /* ---- 字阶 */
-  --brand-size: 13px;
-  --brand-weight: 600;
-  --brand-tracking: 0.01em;
-  --brand-transform: none;
-  --h1-size: 14px;
-  --h1-weight: 600;
-  --h1-tracking: 0;
-  --h1-transform: none;
-  --h2-size: 12px;
-  --h2-weight: 600;
-  --h2-tracking: 0.02em;
-  --h2-transform: none;
-  --h3-size: 13px;
-  --h3-weight: 600;
-  --h3-tracking: 0;
-  --h3-transform: none;
-  --label-tracking: 0.06em;
-  --label-transform: uppercase;
-  --btn-font: var(--font-body);
-  --btn-size: 11.5px;
-  --btn-weight: 600;
-  --btn-tracking: 0.01em;
-  --btn-transform: none;
+  /* ---- 控件高度（Fluent 小 / 中 / 大） */
+  --app-control-h-sm: 24px;
+  --app-control-h-md: 32px;
+  --app-control-h-lg: 40px;
 
-  /* ---- 效果 */
-  --shadow: none;
-  --shadow-color: currentColor;
-  --btn-shadow: none;
-  --btn-primary-shadow: none;
-  --btn-active-transform: none;
-  --btn-active-shadow: none;
-  --box-check-shadow: none;
-  --overlay-blur: 4px;
+  /* ---- 边框层级：外层卡片用 default，内部细分隔用 subtle，强边框用 strong。
+     颜色仍由 FluentProvider 在运行时提供，这里只是语义别名。 */
+  --app-border-subtle: var(--colorNeutralStroke3);
+  --app-border-default: var(--colorNeutralStroke2);
+  --app-border-strong: var(--colorNeutralStroke1);
 
-  /* ---- 动效（对照 Fluent《Motion: timing and easing》，Windows 档位）
-     桌面程序的动效比网页更短更快：83 / 167 / 250ms，进入用 Fast Out Slow In。 */
-  --dur-fast: 83ms;
-  --dur-base: 167ms;
-  --dur-slow: 250ms;
-  --ease-enter: cubic-bezier(0, 0, 0, 1);
-  --ease-exit: cubic-bezier(1, 0, 1, 1);
+  /* ---- 动效时长（只用于自绘控件；Fluent 组件继续用 duration token） */
+  --app-motion-fast: 120ms;
+  --app-motion-base: 180ms;
+  --app-motion-slow: 240ms;
 
-  /* ---- 焦点：Windows 用 2px 双描边，不用彩色光环 */
-  --focus-ring-width: 2px;
-  --focus-ring: 0 0 0 var(--focus-ring-width) var(--accent-soft);
+  /* ---- 层级 */
+  --app-z-resize: 50;
+  --app-z-overlay: 100;
+  --app-z-menu: 1000;
 
-  /* ---- 浮层阴影：Windows 上阴影与 1px 描边成对使用，不允许只有阴影无边 */
-  --shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
-
-  /* ---- 选区与滚动条（原生观感：细、无轨道、中性色） */
-  --selection: rgba(58, 109, 240, 0.24);
-  --selection-ink: currentColor;
-  --scroll-thumb: rgba(0, 0, 0, 0.2);
-  --scroll-thumb-hover: rgba(0, 0, 0, 0.36);
-
-  /* ---- 颜色：中性灰蓝，仅作兜底 */
-  --bg: #f7f7f8;
-  --panel: #ffffff;
-  --panel-a: #ffffff;
-  --panel-b: #ffffff;
-  --sunken: #f1f1f3;
-  --rail-bg: #fafafb;
-  --titlebar-bg: #ffffff;
-  --log-bg: #ffffff;
-  --dialog-bg: #ffffff;
-  --border: #e2e2e6;
-  --border-strong: #b9b9c0;
-  --border-lit: #ffffff;
-  --text: #17171a;
-  --text-dim: #55555e;
-  --text-mute: #8a8a93;
-  --hover: #f0f0f3;
-  --active-bg: #ececf0;
-  --active-border: #9a9aa3;
-  --input-bg: #ffffff;
-  --input-border: #d9d9df;
-  --overlay-bg: rgba(20, 20, 24, 0.5);
-
-  --accent: #3a6df0;
-  --accent-hover: #2f5bd0;
-  --accent-ink: #ffffff;
-  --accent-border: #3a6df0;
-  --accent-soft: rgba(58, 109, 240, 0.12);
-  --accent-border-soft: rgba(58, 109, 240, 0.35);
-  --accent-text: #2f5bd0;
-  --accent-2: var(--accent);
-
-  --ok: #1f7a4d;
-  --ok-bg: rgba(31, 122, 77, 0.1);
-  --info: #2c6b9e;
-  --info-bg: rgba(44, 107, 158, 0.1);
-  --warn: #8a6410;
-  --warn-bg: #fdf4e0;
-  --warn-border: #e3cd97;
-  --warn-text: #6f4f08;
-  --warn-ink: #ffffff;
-  --danger: #b8332b;
-
-  --chip-bg: transparent;
-  --status-bg: transparent;
-  --status-border: var(--border);
-  --box-bg: transparent;
-  --box-border: var(--border-strong);
-  --btn-bg: transparent;
-  --btn-border: var(--border);
-  --btn-hover-bg: var(--hover);
-  --btn-hover-border: var(--border-strong);
-
-  --scanline: transparent;
-  --spine: var(--border);
-  --ambient-1: transparent;
-  --ambient-2: transparent;
-
-  /* ---- 窗口材质层
-     默认与各自的不透明表面完全等价 —— 这样在不支持 Mica 的系统（Windows 10、
-     材质被系统关闭、prefers-reduced-transparency）上，视觉与实色版本一字不差。
-     只有 Rust 侧 set_effects() 成功、<html> 带上 data-material="on" 时，
-     style.css 才会把它们改写成半透明，让系统材质透上来。 */
-  --material-app: var(--bg);
-  --material-titlebar: var(--titlebar-bg);
-  --material-rail: var(--rail-bg);
-  --material-statusbar: var(--titlebar-bg);
-}
-
-/* 深色下滚动条与选区要反过来，否则在深底上几乎看不见 */
-[data-theme="dark"] {
-  --selection: rgba(255, 255, 255, 0.2);
-  --selection-ink: #ffffff;
-  --scroll-thumb: rgba(255, 255, 255, 0.18);
-  --scroll-thumb-hover: rgba(255, 255, 255, 0.34);
-  --shadow-menu: 0 6px 16px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-/* 滚动条：细、无轨道、中性色，接近 Windows 11 的覆盖式滚动条。
-   刻意不用彩色圆角胶囊 —— 那是网页设计系统的典型长相。 */
-::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
-}
-
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: var(--scroll-thumb);
-  background-clip: content-box;
-  border: 4px solid transparent;
-  border-radius: var(--radius-pill);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--scroll-thumb-hover);
-}
-
-::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
+  /* ---- Windows 专用颜色（只在 token 文件里出现裸值） */
+  --app-close-hover: #c42b1c;
+  --app-close-hover-ink: #ffffff;
 }

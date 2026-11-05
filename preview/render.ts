@@ -211,6 +211,8 @@ export function renderPackageScript(o: OptionBag): string {
   out += '#define MyAppName "${name}"\n';
   out += '#define MyAppVersion "${version}"\n';
   out += '#define MyAppExeName "${exe}"\n';
+  out += '#define MyAppId "{${appId}}"\n';
+  out += '#define MyBaselineVersion "${baselineVersion}"\n';
   out += '#define MyAppPublisher "hmilyld"\n';
   out += '#define MyAppURL "https://hmilyld.com/"\n\n';
   out += "[Setup]\n";
@@ -227,7 +229,8 @@ export function renderPackageScript(o: OptionBag): string {
   out += "DisableProgramGroupPage=yes\n";
   out += `PrivilegesRequired=${privileges}\n`;
   out += "OutputDir=${output}\n";
-  out += "OutputBaseFilename={#MyAppName}-安装包-{#MyAppVersion}\n";
+  out += "OutputBaseFilename={#MyAppName}-${artifactLabel}-{#MyAppVersion}\n";
+  out += "${artifactSetup}\n";
 
   out += `Compression=${compression}\n`;
   if (o.solidCompression === true && compressing) out += "SolidCompression=yes\n";
@@ -287,10 +290,9 @@ export function renderPackageScript(o: OptionBag): string {
   }
 
   out += "[Files]\n";
-  out += 'Source: "${root}\\${exe}"; DestDir: "{app}"; Flags: ignoreversion\n';
-  // 主程序由上一行显式加入，`*` 这一行必须把它排除掉（否则同一文件进包两次）
-  out +=
-    'Source: "${root}\\*"; Excludes: "${ignore},${exe}"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs\n\n';
+  // 文件段由打包阶段按产物类型展开：完整包是两行通配，升级包是显式文件列表
+  out += "${files}\n";
+  out += "${installDelete}\n";
 
   if (!portable) {
     out += "[Icons]\n";
@@ -302,11 +304,8 @@ export function renderPackageScript(o: OptionBag): string {
     out += "\n";
   }
 
-  if (o.runAfterInstall === true && !portable) {
-    out += "[Run]\n";
-    out +=
-      "Filename: \"{app}\\{#MyAppExeName}\"; Description: \"{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}\"; Flags: nowait postinstall skipifsilent\n";
-  }
+  out += "${runSection}\n";
+  out += "${artifactCode}\n";
 
   return out;
 }

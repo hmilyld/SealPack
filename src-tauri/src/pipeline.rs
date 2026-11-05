@@ -9,7 +9,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use crate::hash;
 use crate::model::{LogEvent, Project, Stage, StageEvent, StageOutcome};
 use crate::runtime;
-use crate::store::AppState;
+use crate::store::{AppState, CancelState};
 use crate::template;
 use crate::tools::Toolchain;
 
@@ -23,6 +23,10 @@ pub async fn run_stage(
     project: &Project,
     stage: Stage,
 ) -> Result<StageOutcome> {
+    // 每次阶段开始都重置取消状态；runAll 在阶段之间由前端检查 cancelled 标志，
+    // 不会在取消后继续调用下一个阶段。
+    state.cancel.reset();
+
     let toolchain = Toolchain::resolve(&state.tools_dir, &state.user_tools_dir, &state.settings())?;
     let work_dir = state.work_root.join(&project.id);
     std::fs::create_dir_all(&work_dir)
@@ -44,9 +48,19 @@ pub async fn run_stage(
     }
 
     let outcome = match stage {
-        Stage::Merge => run_merge(app, project, &toolchain, &work_dir).await,
-        Stage::Encrypt => run_encrypt(app, project, &toolchain, &work_dir).await,
-        Stage::Package => run_package(app, project, &toolchain, &work_dir, &state.isl_dir).await,
+        Stage::Merge => run_merge(app, project, &toolchain, &work_dir, &state.cancel).await,
+        Stage::Encrypt => run_encrypt(app, project, &toolchain, &work_dir, &state.cancel).await,
+        Stage::Package => {
+            run_package(
+                app,
+                project,
+                &toolchain,
+                &work_dir,
+                &state.isl_dir,
+                &state.cancel,
+            )
+            .await
+        }
     };
 
     match &outcome {
@@ -57,6 +71,12 @@ pub async fn run_stage(
         }
         Err(err) => {
             let message = err.to_string();
+            if state.cancel.is_cancelled() {
+                let cancelled = StageOutcome::cancelled(stage, "用户取消");
+                emit_stage(app, stage, "cancelled", cancelled.message.clone());
+                emit_system(app, stage, "■ 用户取消");
+                return Ok(cancelled);
+            }
             emit_stage(app, stage, "failed", message.clone());
             emit_system(app, stage, format!("✘ {message}"));
         }
@@ -72,6 +92,7 @@ async fn run_merge(
     project: &Project,
     toolchain: &Toolchain,
     _work_dir: &Path,
+    cancel: &CancelState,
 ) -> Result<StageOutcome> {
     require_exe(project)?;
 
@@ -103,6 +124,7 @@ async fn run_merge(
         &toolchain.ilmerge,
         &args,
         Path::new(&project.root_path),
+        cancel,
     )
     .await?;
 
@@ -137,6 +159,7 @@ async fn run_encrypt(
     project: &Project,
     toolchain: &Toolchain,
     work_dir: &Path,
+    cancel: &CancelState,
 ) -> Result<StageOutcome> {
     require_exe(project)?;
 
@@ -170,6 +193,7 @@ async fn run_encrypt(
         &toolchain.confuser,
         &args,
         Path::new(&project.root_path),
+        cancel,
     )
     .await?;
 
@@ -196,6 +220,7 @@ async fn run_package(
     toolchain: &Toolchain,
     work_dir: &Path,
     isl_dir: &Path,
+    cancel: &CancelState,
 ) -> Result<StageOutcome> {
     require_exe(project)?;
 
@@ -209,8 +234,59 @@ async fn run_package(
         bail!("未找到 Inno Setup 编译器：{}", toolchain.iscc.display());
     }
 
+    let artifact = project.build_options.artifact().to_string();
+    let includes_upgrade = project.build_options.includes_upgrade();
+
     std::fs::create_dir_all(&project.output_dir)
         .with_context(|| format!("无法创建输出目录 {}", project.output_dir))?;
+
+    // ---- 当前完整包内容
+    //
+    // 完整包也要算：打包成功后要写基线清单，下一次升级才有比对依据。
+    // 目录很大时这是纯 I/O，放到阻塞线程，别卡住 Tauri 的异步运行时。
+    emit_system(app, Stage::Package, "正在计算文件摘要…");
+    let scan_project = project.clone();
+    let (current, truncated) =
+        tokio::task::spawn_blocking(move || crate::manifest::collect_current(&scan_project))
+            .await
+            .context("计算文件摘要失败")??;
+
+    if truncated && includes_upgrade {
+        return Ok(StageOutcome::failed(
+            Stage::Package,
+            None,
+            "目录过大，扫描被截断；无法可靠计算升级差异",
+        )
+        .with_artifact(artifact));
+    }
+    if truncated {
+        emit_system(
+            app,
+            Stage::Package,
+            "⚠ 目录过大，本次不写基线清单；下次生成升级包需要完整扫描",
+        );
+    }
+
+    let plan = if includes_upgrade {
+        let plan = crate::manifest::plan_upgrade_with(project, &current, truncated);
+        if !plan.error.is_empty() {
+            return Ok(
+                StageOutcome::failed(Stage::Package, None, plan.error).with_artifact(artifact)
+            );
+        }
+        Some(plan)
+    } else {
+        None
+    };
+    let baseline_version = plan
+        .as_ref()
+        .and_then(|plan| plan.baseline.as_ref())
+        .map(|baseline| baseline.version.clone())
+        .unwrap_or_default();
+    let entries: &[crate::manifest::DiffEntry] = plan
+        .as_ref()
+        .map(|plan| plan.files.as_slice())
+        .unwrap_or(&[]);
 
     // 语言包必须与脚本同目录 —— 生成的脚本用相对路径引用它，因为简体中文
     // 不在 Inno Setup 的官方发行版里（详见 defaults.rs 的说明）。
@@ -225,34 +301,101 @@ async fn run_package(
     std::fs::copy(&isl_src, &isl_dst)
         .with_context(|| format!("无法把语言包复制到 {}", isl_dst.display()))?;
 
-    let script_path = work_dir.join("package.iss");
-    let rendered = template::render(&project.package_script, &template::context(project));
-    // Inno Setup 6 支持带 BOM 的 UTF-8 脚本
-    write_utf8_bom(&script_path, &rendered)?;
-    emit_system(
-        app,
-        Stage::Package,
-        format!("已生成临时脚本 {}", script_path.display()),
-    );
-
     let output_dir = Path::new(&project.output_dir);
     // 打包前先记下产出目录的样子，事后靠它找出「这次新产生/被改写的文件」。
     // 不去猜安装包叫什么名字 —— OutputBaseFilename 是可以被用户手改的。
     let before = snapshot_dir(output_dir);
     let started = build_started_at();
 
-    let args = vec![script_path.to_string_lossy().to_string()];
-    let code = exec_streaming(app, Stage::Package, &toolchain.iscc, &args, work_dir).await?;
+    let mut scripts: Vec<&str> = Vec::new();
+    if project.build_options.includes_installer() {
+        scripts.push(crate::packaging::INSTALLER);
+    }
+    if includes_upgrade {
+        scripts.push(crate::packaging::UPGRADE);
+    }
 
-    let _ = std::fs::remove_file(&script_path);
+    for (index, kind) in scripts.iter().enumerate() {
+        if cancel.is_cancelled() {
+            let _ = std::fs::remove_file(&isl_dst);
+            let mut outcome =
+                StageOutcome::cancelled(Stage::Package, "用户取消").with_artifact(artifact.clone());
+            outcome.artifacts = changed_files(output_dir, &before, started)
+                .into_iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect();
+            return Ok(outcome);
+        }
+
+        let label = if *kind == crate::packaging::UPGRADE {
+            "升级包"
+        } else {
+            "安装包"
+        };
+        emit_system(
+            app,
+            Stage::Package,
+            format!("▶ 正在生成{}（{}/{}）", label, index + 1, scripts.len()),
+        );
+
+        // 打包阶段的占位符必须先展开，再展开模板里的 ${root} / ${exe} / ${ignore}：
+        // `${files}` 的值本身包含这些占位符，顺序反过来会留下未替换的 ${...}。
+        let mut vars = crate::packaging::render_vars(project, kind, &baseline_version, entries);
+        vars.extend(template::context(project));
+        let rendered = template::render(&project.package_script, &vars);
+
+        let script_path = work_dir.join(format!("package-{kind}.iss"));
+        // Inno Setup 6 支持带 BOM 的 UTF-8 脚本
+        write_utf8_bom(&script_path, &rendered)?;
+        emit_system(
+            app,
+            Stage::Package,
+            format!("已生成临时脚本 {}", script_path.display()),
+        );
+
+        let args = vec![script_path.to_string_lossy().to_string()];
+        let code = exec_streaming(
+            app,
+            Stage::Package,
+            &toolchain.iscc,
+            &args,
+            work_dir,
+            cancel,
+        )
+        .await?;
+        let _ = std::fs::remove_file(&script_path);
+
+        if code != 0 {
+            let _ = std::fs::remove_file(&isl_dst);
+            let mut outcome = StageOutcome::failed(
+                Stage::Package,
+                Some(code),
+                format!("{label}编译失败，请查看日志"),
+            )
+            .with_artifact(artifact.clone());
+            // 部分成功：例如「两者」里完整包已经出来了，升级包失败。
+            outcome.artifacts = changed_files(output_dir, &before, started)
+                .into_iter()
+                .map(|path| path.to_string_lossy().to_string())
+                .collect();
+            return Ok(outcome);
+        }
+    }
+
     let _ = std::fs::remove_file(&isl_dst);
 
-    if code != 0 {
-        return Ok(StageOutcome::failed(
-            Stage::Package,
-            Some(code),
-            "Inno Setup 编译失败，请查看日志",
-        ));
+    // 所有产物都成功后写一次基线清单。清单描述的是完整安装状态，
+    // 与出的是完整包还是升级包无关；「两者」也只写一份。
+    // 放在循环外：部分成功（完整包成功、升级包失败）时不要推进基线。
+    if !truncated {
+        match crate::manifest::write_manifest(project, &current) {
+            Ok(path) => emit_system(
+                app,
+                Stage::Package,
+                format!("已写入基线清单 {}", path.display()),
+            ),
+            Err(err) => emit_system(app, Stage::Package, format!("⚠ 基线清单写入失败：{err}")),
+        }
     }
 
     let mut artifacts: Vec<String> = changed_files(output_dir, &before, started)
@@ -266,7 +409,7 @@ async fn run_package(
     // ---- 产出校验清单（哈希）
     //
     // 放在打包之后：这时候才存在「真正要发布给用户的东西」。
-    // 注意把上一次的清单排除掉，否则会去哈希一份过期清单。
+    // 排除上一次的清单与基线 JSON：它们是元数据，不是发布物。
     let algo = project.package_options.checksum.to_ascii_lowercase();
     if hash::is_enabled(&algo) {
         let files: Vec<PathBuf> = artifacts
@@ -274,9 +417,11 @@ async fn run_package(
             .map(PathBuf::from)
             .filter(|p| p.is_file())
             .filter(|p| {
-                !p.file_name()
-                    .map(|n| n.to_string_lossy().starts_with("checksums-"))
-                    .unwrap_or(false)
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                !name.starts_with("checksums-") && !name.starts_with("sealpack-manifest-")
             })
             .collect();
 
@@ -287,8 +432,8 @@ async fn run_package(
                 "⚠ 没有找到可校验的产出文件，已跳过校验清单",
             );
         } else {
-            let manifest = output_dir.join(format!("checksums-{algo}.txt"));
-            match hash::write_manifest(&algo, &files, &manifest) {
+            let checksum_path = output_dir.join(checksum_name(&artifact, &algo));
+            match hash::write_manifest(&algo, &files, &checksum_path) {
                 Ok(path) => {
                     emit_system(
                         app,
@@ -302,11 +447,22 @@ async fn run_package(
         }
     }
 
-    Ok(StageOutcome::ok(
-        Stage::Package,
-        "安装包打包完成",
-        artifacts,
-    ))
+    let message = match artifact.as_str() {
+        "both" => "安装包与升级包打包完成",
+        "upgrade" => "升级包打包完成",
+        _ => "安装包打包完成",
+    };
+
+    Ok(StageOutcome::ok(Stage::Package, message, artifacts).with_artifact(artifact))
+}
+
+/// 校验清单按产物命名，避免「先出完整包、再出升级包」时互相覆盖。
+fn checksum_name(artifact: &str, algo: &str) -> String {
+    match artifact {
+        "upgrade" => format!("checksums-upgrade-{algo}.txt"),
+        "both" => format!("checksums-both-{algo}.txt"),
+        _ => format!("checksums-{algo}.txt"),
+    }
 }
 
 /// 产出目录的文件快照：路径 → (大小, 修改时间)
@@ -455,6 +611,7 @@ async fn exec_streaming(
     program: &Path,
     args: &[String],
     cwd: &Path,
+    cancel: &CancelState,
 ) -> Result<i32> {
     let shown: Vec<String> = args.iter().map(|a| mask_secret(a)).collect();
     emit_system(
@@ -481,6 +638,17 @@ async fn exec_streaming(
         .spawn()
         .with_context(|| format!("无法启动 {}", program.display()))?;
 
+    let pid = child.id();
+    if let Some(pid) = pid {
+        cancel.set_pid(pid);
+        if cancel.is_cancelled() {
+            crate::store::kill_process_tree(pid);
+            let _ = child.kill().await;
+            cancel.clear_pid();
+            bail!("已取消");
+        }
+    }
+
     let stdout = child.stdout.take().context("无法读取子进程输出")?;
     let stderr = child.stderr.take().context("无法读取子进程错误输出")?;
 
@@ -488,8 +656,13 @@ async fn exec_streaming(
     let err_task = tokio::spawn(stream_lines(app.clone(), stage, stderr, "stderr"));
 
     let status = child.wait().await.context("等待子进程结束失败")?;
+    cancel.clear_pid();
     let _ = out_task.await;
     let _ = err_task.await;
+
+    if cancel.is_cancelled() {
+        bail!("已取消");
+    }
 
     Ok(status.code().unwrap_or(-1))
 }
@@ -552,6 +725,16 @@ fn emit_stage(app: &AppHandle, stage: Stage, status: &str, message: impl Into<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checksum_names_do_not_overwrite_between_artifacts() {
+        assert_eq!(checksum_name("installer", "sha256"), "checksums-sha256.txt");
+        assert_eq!(
+            checksum_name("upgrade", "sha256"),
+            "checksums-upgrade-sha256.txt"
+        );
+        assert_eq!(checksum_name("both", "md5"), "checksums-both-md5.txt");
+    }
 
     /// 打码表必须覆盖所有已知的口令参数 —— 漏一个就等于把口令原样写进日志面板。
     #[test]

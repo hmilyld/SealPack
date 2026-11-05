@@ -1,8 +1,11 @@
 mod commands;
 mod defaults;
 mod download;
+mod excludes;
 mod hash;
+mod manifest;
 mod model;
+mod packaging;
 mod pipeline;
 mod runtime;
 mod settings;
@@ -97,6 +100,7 @@ pub fn run() {
             commands::run_stage,
             commands::scan_tree,
             commands::exe_version,
+            commands::exe_product_name,
             commands::exe_app_id,
             commands::tool_status,
             commands::download_tool,
@@ -106,6 +110,10 @@ pub fn run() {
             commands::render_encrypt_config,
             commands::render_package_script,
             commands::project_ignores,
+            commands::plan_upgrade,
+            commands::preflight,
+            commands::cancel_build,
+            commands::save_log,
             commands::placeholders,
             window_material,
         ])

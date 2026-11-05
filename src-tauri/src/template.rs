@@ -53,5 +53,24 @@ pub fn placeholder_help() -> Vec<(&'static str, &'static str)> {
         ("${version}", "版本号"),
         ("${password}", "安装包密码"),
         ("${ignore}", "打包排除项（待合并程序集 + 备份文件）"),
+        (
+            "${files}",
+            "文件段：完整包展开为通配行，升级包展开为变更文件列表（打包阶段填充）",
+        ),
+        (
+            "${installDelete}",
+            "升级包的 [InstallDelete] 段；完整包为空（打包阶段填充）",
+        ),
+        (
+            "${artifactSetup}",
+            "升级包的 [Setup] 指令（跳过目录/就绪/完成页）；完整包为空",
+        ),
+        (
+            "${artifactCode}",
+            "升级包的 [Code]（跳过任务页 + 校验旧版本）；完整包为空",
+        ),
+        ("${artifactLabel}", "产物标签：安装包 / 升级包"),
+        ("${runSection}", "[Run] 段；升级包为空"),
+        ("${baselineVersion}", "升级基线版本；完整包为空"),
     ]
 }

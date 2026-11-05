@@ -2,46 +2,60 @@
 
 ## 技术栈与形态
 
-**Windows 桌面应用**：Rust 后端（Tauri 2）+ 原生 TypeScript 前端（无 UI 框架，TailwindCSS 4 只用于重置与少量工具类）。
-界面结构、状态与交互全部手写，两套视觉设计共用同一份 DOM。
+**Windows 桌面应用**：Rust 后端（Tauri 2）+ React 前端（React 18、TypeScript、Fluent UI React v9、Griffel、Zustand）。
 
-选 Tauri 而不是 Electron 的理由很直接：需要调用三个外部命令行工具、需要读写本地文件、需要窗口材质，
-而渲染层只是「配置界面 + 日志面板」—— 没有必要为此带一个完整的浏览器运行时。
+选 Tauri 而不是 Electron 的理由不变：需要调用三个外部命令行工具、读写本地文件、窗口材质；渲染层只是「配置界面 + 日志面板」。
 
 ## 模块地图
 
 ```
 前端 (src/)
-├── main.ts              界面编排与状态管理（五步向导、自绘标题栏、皮肤切换器、右键菜单装配）
-├── types.ts             共享类型 + 步骤元数据 + 选项 schema（唯一的事实源）
-├── api.ts               Tauri 命令与事件封装（含统一包错的文件选择入口）
-├── desktop.ts           桌面化行为层（快捷键注册表 + 拦掉浏览器行为 + 首帧显示）
-├── skin.ts              皮肤 / 主题 / 材质三个开关的单一状态源
-├── util.ts              共用小工具（HTML 转义 / 取文件名 / 相对路径）
-├── style.css            样式入口（按层导入）
-├── styles/              tokens.css（兜底令牌）→ skins/*.css → components.css
+├── main.tsx                挂载 React、安装桌面行为、首帧显示
+├── App.tsx                 主题 / Toast / 右键菜单 Provider、事件订阅、快捷键
+├── theme/                  FluentProvider、Windows 11 蓝色阶、系统/浅/深三态
+├── styles/global.css       滚动条、选区、Mica、拖拽区等 Fluent 不负责的少量全局样式
+├── api.ts                  Tauri 命令与事件封装、文件/目录/保存对话框
+├── desktop.ts              桌面化行为层（快捷键 + 拦浏览器行为 + 首帧显示）
+├── types.ts                共享类型 + 步骤元数据 + 选项 schema + 打包预设
+├── util.ts                 路径相对化 / 是否在目录下 / 文件名
+├── lib/
+│   ├── defaults.ts         schema 默认值、预设匹配
+│   ├── fileTree.ts         扁平化、三态、筛选、统计、通配符
+│   ├── format.ts           字节数 / 时间格式化
+│   └── summaries.ts        合并/加密/打包摘要与阶段状态文案
+├── stores/
+│   ├── projectStore.ts     工程列表、当前工程、600ms 防抖保存
+│   ├── workspaceStore.ts   扫描树、scanEpoch、ignoreEpoch、排除项
+│   ├── optionsStore.ts     选项变更、模板重建、预设/恢复默认
+│   ├── buildStore.ts       阶段状态、日志、取消、构建历史
+│   ├── settingsStore.ts    工具链、运行环境、设置
+│   └── uiStore.ts          当前步骤、日志抽屉、浮层
 └── components/
-    ├── file-tree.ts     文件树（三个独立点击区 + 搜索 / 类型 / 只看已选）
-    ├── file-picker.ts   文件选择器 = 文件树 + 一层「找人」的工具
-    ├── log-panel.ts     运行日志面板（行数上限 + live region）
-    ├── modal.ts         对话框外壳 + 确认 / 输入 / 新建工程
-    ├── settings-dialog.ts  设置面板（工具路径 + 运行环境 + 下载）
-    ├── context-menu.ts  自绘右键菜单
-    └── toast.ts         提示条
+    ├── common/             Page、Panel、ContextMenu
+    ├── shell/              TitleBar、ProjectRail、StepNav、StatusBar、LogDrawer、ResizeZones
+    ├── tree/               FileTree（自绘扁平树 + 虚拟滚动）
+    ├── steps/              Setup/Merge/Encrypt/Package/Run/Workspace
+    ├── options/            OptionField、OptionGroups、PresetPicker、TemplateEditor、PackageOptions
+    ├── upgrade/            UpgradePanel（基线卡 + 只读差异）
+    ├── dialogs/            NewProjectDialog、SettingsDialog
+    └── feedback/           ToastProvider
 
 后端 (src-tauri/src/)
 ├── lib.rs               组装：插件、窗口、命令注册表、启动兜底
-├── commands.rs          Tauri 命令层（参数校验 + 选项↔模板对齐）
-├── model.rs             领域模型：Project / EncryptOptions / PackageOptions / 事件载荷
-├── store.rs             工程持久化、应用状态、临时目录清理
+├── commands.rs          Tauri 命令层（工程、扫描、预检、取消、保存日志、执行）
+├── model.rs             领域模型：Project / 选项 / 事件 / 预检 / 构建历史
+├── store.rs             工程持久化、schemaVersion 迁移、取消状态、临时目录清理
 ├── defaults.rs          由选项生成模板（加密配置 / 打包脚本）+ Inno 边界常量
+├── packaging.rs         按产物展开 ${files} / ${installDelete} / [Code] / [Run]
+├── manifest.rs          升级基线清单：写入、读取、diff、版本/安装模式校验
 ├── template.rs          ${key} 占位符渲染
-├── pipeline.rs          三阶段异步进程编排（备份、流式日志、产出识别）
+├── pipeline.rs          三阶段异步进程编排（备份、流式日志、产出识别、取消）
+├── excludes.rs          打包范围统计 + 完整文件清单 + Inno Excludes 近似匹配
 ├── tools.rs             工具链定位（自定义 > 内置 > 下载目录）+ 本机探测
-├── download.rs          外部工具自动下载（来源声明 / 流式下载 / SHA-256 / 解压 / 静默安装）
-├── hash.rs              产出校验清单（SHA-256 / SHA-1 / MD5，流式）
-├── runtime.rs           .NET Framework 运行时探测（注册表）
-└── settings.rs          全局设置（工具路径）
+├── download.rs          外部工具自动下载（来源 / SHA-256 / 解压 / 安装）
+├── hash.rs              产出校验清单（SHA-256 / SHA-1 / MD5）
+├── runtime.rs           .NET Framework 运行时探测
+└── settings.rs          全局设置
 ```
 
 ## 数据流
@@ -49,189 +63,159 @@
 ```
 用户在向导里改开关
       │
-      ├─ 选项写进 current.encryptOptions / current.packageOptions
+      ├─ 写进 current.encryptOptions / packageOptions
       │
-      ├─ 若 generated == true → invoke render_encrypt_config / render_package_script
-      │        （Rust 侧 defaults.rs 生成模板文本）→ 写回 current.encryptConfig / packageScript
+      ├─ generated == true → invoke render_encrypt_config / render_package_script
+      │        （Rust defaults.rs 生成模板）→ 写回 current.encryptConfig / packageScript
       │
       ├─ 600ms 防抖 → invoke save_project → %APPDATA%\...\projects\<id>.json
       │
-      └─ 点「执行」→ invoke run_stage
-               │
-               ├─ Rust：先 save_project（落盘权威在这里），再进 pipeline
-               ├─ 按阶段取工具链路径 → 备份主程序（首次）→ 写临时配置 / 脚本到 work/<id>/
-               ├─ 启动子进程，stdout / stderr 逐行 emit "pipeline:log"
+      ├─ 打包页（产物含升级包）→ invoke plan_upgrade（基线 + 只读差异）
+      │
+      ├─ 执行页 → invoke preflight（路径 / 模板占位符 / 工具链 / 运行时 / 升级基线）
+      │        ├─ 有 error：禁用「全部执行」
+      │        └─ 有 warn：确认一次后继续
+      │
+      └─ invoke run_stage
+               ├─ Rust 先 save_project（落盘权威在 Rust），再进 pipeline
+               ├─ 按阶段取工具链路径 → 备份主程序（首次）→ 写临时配置/脚本
+               ├─ 启动子进程，stdout/stderr 逐行 emit "pipeline:log"
                ├─ emit "pipeline:stage" 汇报阶段状态
-               └─ 打包阶段：执行前后对比输出目录，找出实际产出 → 可选生成校验清单
+               ├─ 打包阶段：执行前后对比输出目录，找出实际产出 → 可选校验清单
+               └─ 前端把本次结果写入 Project.buildHistory（最多 20 条）
 ```
 
-前端不持有模板语义：它只收集开关，模板永远由 Rust 生成。这条约束让「界面上的选项」与
-「实际写进配置的东西」不可能漂移。
+前端不持有模板语义：它只收集开关，模板永远由 Rust 生成。这条约束让「界面上的选项」与「实际写进配置的东西」不可能漂移。
 
 ## 那些「不知道就会改错」的不变量
-
-以下每一条都对应一次真实踩过的坑，改动相关代码前请先读。
 
 ### 1. 选项与模板都只有一处定义
 
 - **加一个配置项 = 只改 schema**（`src/types.ts` 的 `ENCRYPT_GROUPS` / `PACKAGE_GROUPS`）。
-  界面按它渲染，回归探针也按它断言，不要为某个选项手写渲染代码。
-- **模板只由 Rust 生成**（`defaults.rs`）。前端调用 `render_*` 命令，不自己拼字符串。
+- **模板只由 Rust 生成**（`defaults.rs`）。前端调用 `render_*`，不自己拼字符串。
 
 ### 2. 模板生成器有两份实现，靠脚本保持一致
 
-浏览器预览没有 Rust，所以 `preview/render.ts` 是 `defaults.rs` 的镜像。两边一旦漂移，
-预览里看到的模板就不是用户实际会拿到的模板 —— 而这种漂移在预览里看起来「挺对」。
-
-`pnpm run check:render-parity` 用 Rust dump 出来的 fixture 与 TS 侧的输出做**逐字比对**。
-改任何一边都要跑它。详见[开发](development.md#生成器一致性)。
+浏览器预览没有 Rust，所以 `preview/render.ts` 是 `defaults.rs` 的镜像。改任何一边都要跑 `pnpm run check:render-parity`。
 
 ### 3. 异步写回全局状态需要代次守卫
 
-`ensureTree` / `refreshIgnores` 都是异步的，而它们写回的目标（`treeNode` / `ignores`）是模块级的。
-切换工程时若旧请求晚于新请求返回，就会把上一个工程的目录树挂到当前工程上，
-`picker.onChange` 会把 A 的路径写进 B 的 `mergeDlls`。
+`workspaceStore.ensureTree` / `refreshIgnores` 各有一个单调递增的 epoch。切换工程时旧请求晚于新请求返回，会挂错树、写错路径。**两个计数器必须分开**——勾选文件会触发排除项刷新，共用一个会让在途扫描自我作废。每条早退路径都必须把 `scanning` 落地。
 
-所以两者各有一个单调递增的 `epoch`，回来时对不上就直接丢弃。**两个计数器必须分开** ——
-勾选文件会触发排除项刷新，共用一个计数器会让在途的扫描自我作废。
+### 4. 长任务前必须快照工程
 
-另一处细节：每条早退路径都必须把 `scanning = false` 落地，否则一个被作废的请求会把
-「扫描中…」永久留在步骤条上。
-
-### 4. 长任务前必须快照 `current`
-
-`runStage` / `runAll` 在入口捕获 `proj`，之后每次写回（状态、产出、保存指示）都先校验
-`current.id === proj.id`。运行期间左侧工程列表会被禁用，但快捷键与程序化路径仍可能触发切换，
-校验是最后一道防线。
+`buildStore.runStage` / `runAll` 在入口捕获 `project.id`，之后每次写回（状态、产物、历史）都先校验。运行期间工程栏被禁用，但快捷键与程序化路径仍可能切走。
 
 ### 5. 防抖保存必须在切换工程前结算
 
-`scheduleSave` 是 600ms 防抖，回调里用的是**捕获的** `proj`。而 `selectProject` 会替换 `current`，
-所以它必须先 `flushPendingSave()` —— 否则「改完字段立刻切走」那次修改既不会被保存、也不会留在界面上。
-删除当前工程时用 `discardPendingSave()`（保存了也马上删）。
+`projectStore` 的 `scheduleSave` 是 600ms 防抖，回调用捕获的工程。`select` / `refresh` 必须先 `flush()`；删除当前工程用 `discard()`。
 
-### 6. 样式层的层叠陷阱
+### 6. 只有一套主题
 
-`components.css` 的规则全部包在 `@layer components` 里，而 `skins/*.css` 是**无层**（unlayered）的。
-CSS 层叠规则里，无层的作者样式在任何优先级下都胜过有层的作者样式 —— 所以皮肤里的一条普通规则
-能压过组件层的 `:hover`。
+`ThemeProvider` 用 `FluentProvider` + `createLightTheme` / `createDarkTheme`；状态是 `system | light | dark`，存 `localStorage["sealpack:theme"]`。**没有 `data-skin`，不要恢复两套皮肤。** Mica 由 `data-material` 控制，只影响标题栏/工程栏/状态栏。
 
-**推论**：皮肤要覆盖某个组件的 hover / active 态，必须写在皮肤文件里。
+### 7. 文件树是自绘扁平树
 
-样式加载顺序：`style.css` → `tokens.css` → `skins/*.css` → `components.css`。
-`tokens.css` 给出全套兜底值不是多余的 —— 自定义属性未定义时整条声明会失效（不是回退到可见的初始值），
-表现为元素莫名没有边框。
+`components/tree/FileTree.tsx` + `lib/fileTree.ts`，`@tanstack/react-virtual` 虚拟滚动。不用 Fluent `FlatTree` 的原因：30px 行高、三态勾选、大小/状态列、锁定项、8000 节点性能都需要完全控制。
 
-### 7. 两套皮肤共用一份 DOM
+**打包页勾选 = 打包**（正向语义）；自动项锁定为未勾选，主程序锁定为已勾选。合并页通过 `hidden` 隐藏主程序。整行点击 = 切换选中；展开箭头 = 展开/折叠；勾选框 = 切换选中。锁定行只聚焦，不改变勾选。
 
-皮肤与主题挂在 `<html data-skin data-theme data-themeMode>` 上，是根元素属性。
-对话框与提示条虽然挂在 `<body>` 上，也会**同时**切换，不存在「部分元素还是旧皮肤」的中间态。
-**永远不要为某套皮肤 fork DOM。**
+### 8. 预检是 Rust 命令，不在前端重复实现
 
-### 8. 全局快捷键表不 `stopPropagation`
+`commands.rs::preflight` 检查主程序、根目录、输出目录可写、AppId、模板占位符、工具链、.NET 运行时；产物含升级包时还会算基线差异并检查安装模式/版本。前端只负责展示与「有 warn 才确认」。路径检查不要在前端再写一份。
 
-快捷键在 `window` 的**捕获**阶段处理，只 `preventDefault`。浮层（对话框、右键菜单）需要自己处理 `Esc`，
-全局表把它吞掉的话对话框就关不上了。
+### 9. 取消构建必须杀进程树
 
-### 9. 窗口 `visible: false` 的两半都不能删
+`store.rs::CancelState` 保存 `AtomicBool` 与当前 PID；`cancel_build` 用 `taskkill /PID <pid> /T /F` 杀整棵进程树。只杀父进程会留下 ISCC 子进程，下一次构建会被文件占用卡住。`StageStatus` 新增 `"cancelled"`，不要把它当 `"failed"`。
 
-窗口以 `visible: false` 创建，前端在「写皮肤 → 两帧 rAF → `show()`」之后才显示，所以启动不会闪白底；
-Rust 侧另有一个 1.5s 的兜底显示，前端脚本出错也不会让窗口永不出现。
+### 10. 构建历史与 schemaVersion
 
-`index.html` 里的内联引导脚本是首帧主题的唯一来源，它依赖 Tauri 在构建时为内联脚本注入 CSP hash/nonce
-（CSP 是 `script-src 'self'`，没有 `'unsafe-inline'`）。**改 CSP 或换页面宿主时必须回归启动首帧。**
+`Project.buildHistory` 存最近 20 次记录；`Project.schemaVersion` 是唯一允许 `#[serde(default)]` 的字段。旧工程由 `store.rs::migrate_project` 补 `buildHistory` / `buildOptions` 并升到 3，再严格反序列化。**不要给普通字段加 serde 默认值**——缺字段说明文件被改坏了。
 
-### 10. 注册 Tauri 命令是两步
+### 11. 保存日志
 
-在 `commands.rs` 定义**并且**加进 `lib.rs` 的 `invoke_handler!` 列表。少一步就是「命令不存在」的运行时错误。
+`save_log` 写 UTF-8 with BOM，方便记事本看中文；日志里的 `/PASSWORD=` 已由 `pipeline.rs::mask_secret` 打码。日志可能包含本地路径，保存前提示用户。
 
-### 11. 工具链三级回退
+### 12. 排除项匹配有两份实现
 
-任何地方解析工具路径的顺序都是：**用户设置 > 应用内置 `resources/tools` > 用户下载目录
-（`%APPDATA%\com.hmilyld.sealpack\tools`）**。
+Rust `excludes.rs::matches` 与前端 `PackageStep` / `preview/mock.ts` 的 `matchPattern`。语义：含 `\` 匹配完整相对路径，否则匹配文件名；`*` 含 `\`，`?` 单字符；大小写不敏感。改一处要同步另一处。
 
-第三级是必需的：应用装在 `Program Files` 下时内置目录只读，自动下载的工具只能落到用户目录，
-少了这一级「下载成功但界面仍显示未找到」。
+### 13. 输出目录在根目录内时自动排除
 
-### 12. 取值一律白名单收敛
+`Project::output_dir_ignore` 返回 `相对路径\*`，避免上一轮安装包被打进下一轮。输出目录等于根目录时拒绝排除，由预检报错。
 
-工程 JSON 是可以手改的，所以所有枚举值在写进模板前都过一遍白名单，不认识的退回默认值
-（`defaults.rs::pick`）。已知的坑都用测试钉住了：`snKey` 在 `<module>` 上、
-`Encryption=full` 仍要写 `Password`。
+### 14. 注册 Tauri 命令是两步
 
-### 13. Inno 的边界值集中在 `defaults.rs` 顶部
+在 `commands.rs` 定义**并且**加进 `lib.rs` 的 `invoke_handler!` 列表。
 
-`LZMA_DICT_MIN_KB` / `LZMA_DICT_MAX_KB` / `LZMA_THREADS_MAX` / `SLICE_MIN_BYTES` /
-`SLICE_MAX_BYTES` / `SLICES_MIN` / `SLICES_MAX` 都抄自 Inno 官方文档，`preview/render.ts` 有同名常量。
-**改一处必须改另一处，并跑一致性校验。**
+### 15. 全局快捷键表不 `stopPropagation`
 
-### 14. 中文语言包必须随应用分发
+快捷键在 `window` 的**捕获**阶段处理，只 `preventDefault`。浮层（对话框、右键菜单）自己处理 `Esc`。
 
-简体中文**不在** Inno Setup 的官方发行版里（官方 `Languages\` 只带 29 种语言），
-所以脚本里不能用 `compiler:Languages\ChineseSimplified.isl` —— 那在任何标准安装上都会
-`Couldn't open include file`。本应用自带一份翻译（`src-tauri/resources/isl/`），
-打包阶段复制到临时脚本旁边，用相对路径引用（ISCC 按脚本所在目录解析）。
+### 16. 窗口 `visible: false` 的两半都不能删
 
-推论：**改动 `[Languages]` 那一行或 `isl` 资源目录时，必须用真实 ISCC 编译一次验证**
-（仅靠单测只能证明字符串写对了，证明不了文件在不在）。
+窗口以 `visible: false` 创建，前端在「写主题 → 两帧 rAF → `show()`」之后才显示；Rust 侧另有 1.5s 兜底。
 
-### 15. 内置工具必须与声明的下载版本一致
+`index.html` 的内联主题脚本依赖 Tauri 在构建时为内联脚本注入 CSP hash/nonce（CSP 是 `script-src 'self'`，没有 `'unsafe-inline'`）。改 CSP 或换页面宿主时必须回归启动首帧。
 
-工具解析顺序是「用户设置 > 内置 > 下载目录」，所以内置目录里放一份**旧版本**会静默压住
-下载到的正确版本。曾经发生过：内置 Inno Setup 6.1 而声明 6.7.3，导致生成的脚本里
-`EncryptionKeyDerivation`（6.5+ 才有）被判为未知指令，打包直接失败。
+### 17. Rust 侧的发布约束
 
-### 16. 工程 JSON 不写 serde 默认值
+- 工具链顺序：用户设置 > 内置 `resources/tools` > 用户下载目录；内置旧版本会静默压住下载的正确版本。
+- Inno 边界值集中在 `defaults.rs` 顶部，`preview/render.ts` 有同名常量。
+- 中文语言包随应用分发，`[Languages]` 用相对路径引用。
+- `AppId` 由主程序产品身份推导，不能由工程 id 推导。
 
-本程序完整写出所有字段，缺字段说明文件被改坏了，应当报错而不是悄悄补默认值。
-所以 `Project` / `EncryptOptions` / `PackageOptions` 上没有任何 `#[serde(default)]`；
-`Settings::load` 在解析失败时回退到默认值，但会往 stderr 留一条痕。
+### 18. 升级包只在打包阶段分叉
 
-### 17. 两处摘要必须一起刷新
-
-「勾选了几个程序集 / 启用了几项保护 / 排除了几项」这件事在界面上出现**两次**：
-步骤条每步下面一行（`stepSub`）与执行页每个阶段一行（`stageSummary`）。两处读同一份数据，
-但渲染时机不同 —— 步骤条是每次改动都重算，执行页那几行只在**工程首次渲染**与**阶段执行结束**时算。
-
-于是有了这个 bug：用户在 ②③④ 里逐项配好，切到 ⑤ 执行，看到的是「未勾选程序集，执行时会跳过」
-「未启用任何保护」「排除 0 项」—— 全部是刚建好工程时的快照。
-
-所以 `syncStepSubs()` 是所有改动路径的**统一出口**，它必须同时刷新这两处。
-探针第 48 组用一条不变量守着：改一次勾选后，两处的计数必须一致
-（回退修复后该断言会报 `[4, 3]`，正是用户看到的现象）。
-
-**推论**：以后凡是「同一个事实在界面上出现多次」，要么让它们走同一个渲染函数，
-要么在一处集中刷新 —— 否则必然出现这种「一半新一半旧」。
+- `defaults.rs` 只生成一套模板；`packaging.rs` 按产物展开 `${files}` / `${installDelete}` / `${artifactSetup}` / `${artifactCode}` / `${artifactLabel}` / `${runSection}`。
+- `manifest.rs` 负责基线清单的写入、读取与差异；差异只看 SHA-256，不看修改时间。
+- 每次成功打包都写 `sealpack-manifest-<版本>.json`，它描述**完整安装状态**，不是增量。
+- 升级包只支持 `single + uninstallable`；绿色版、分卷、关闭卸载程序由预检拦截。
+- 升级安装器在 `[Code]` 里查 `<AppId>_is1`：没有旧版本直接中止，版本不一致弹确认。
+- 构建历史用 `StageOutcome.artifact`，不要再硬编码 `installer`。
 
 ## 桌面化设计的取舍
 
-浏览器引擎给的默认值本身就是「网页味」的主要来源。`desktop.ts` 把这些默认值逐条换成桌面程序的习惯：
-
-| 拦掉的浏览器行为 | 说明 |
-| --- | --- |
-| `Ctrl+R` / `F5` / `F7` / `F12` | 刷新与开发者工具 |
-| `Ctrl+P` / `Ctrl+F` / `Ctrl+U` | 打印 / 查找 / 查看源码 |
-| `Ctrl+Shift+I/J/C` | 开发者工具与元素检查 |
-| `Ctrl` `+` / `-` / `0` 与 `Ctrl+滚轮` | 浏览器缩放 —— 固定密度的桌面工具没有「缩放」这个概念，所以是拦掉而不是改键 |
-| 拖出界面内容 / 拖入文件导航 | 阻止 `dragstart` 与 `dragover` / `drop`（`.drop-target` 除外） |
-| 右键原生菜单 | 由自绘菜单替代 |
-| 无焦点时按 `Backspace` | 阻止「后退」 |
-| 界面文字被拖选 | `body` 默认 `user-select: none`，只放开输入框、脚本编辑区、运行日志与 `.selectable` |
-
-度量层向 Fluent / WinUI 3 靠（依据 Fluent 规范）：
-
 | 项 | 取值 | 依据 |
 | --- | --- | --- |
-| 标题栏高度 | 36–38px | Fluent 32px；这里要留出皮肤切换器，但仍在同一量级 |
-| 窗口按钮 | 46px 宽 × 通高 × 直角 | Fluent caption 按钮；关闭键 hover `#C42B1C`、按下 `#B02518` |
-| 状态栏 | 24px，工具链 / 版本 / 版权 | 本地工具把状态放窗口底部，而不是塞进标题栏 |
-| 正文字号 / 行高 | 12px / 1.4 | 桌面工具密度，不是网页的 13–14px / 1.5 |
-| 圆角 | 4px 控件 / 3px 小件 | Fluent Windows 的 4/8/8 体系收一档 |
-| 动效 | 83 / 167 / 250ms | Fluent motion；进场 `cubic-bezier(0,0,0,1)`、退场 `cubic-bezier(1,0,1,1)` |
-| 焦点环 | 2px 双描边 | Fluent 的焦点是双描边，不是彩色光晕 |
-| 光标 | 界面元素一律箭头 | 手型光标是网页习惯；`::selection` 也用设计主色而非浏览器蓝 |
+| 标题栏 | 40px | Fluent 标题栏 + 构建/主题/设置入口 |
+| caption 按钮 | 46×40 | Fluent caption 按钮；关闭 hover `#C42B1C` |
+| 状态栏 | 28px | 工具链 / 版本 / 版权 |
+| 正文 | 14px / 20px 行高 | Fluent `fontSizeBase300`，桌面工具密度 |
+| 树行 | 30px | 三列信息 + 勾选框仍可点 |
+| 圆角 | 4px 控件 / 8px 卡片 | Fluent |
+| 动效 | Fluent duration tokens | 不用一套固定毫秒 |
+| 焦点 | Fluent 2px 焦点指示器 | 不用彩色光晕 |
+| 光标 | 界面元素一律箭头 | 手型是网页习惯 |
+| 字体 | Segoe UI Variable / Cascadia Mono | 系统字体，无远程依赖 |
 
-浮层一律「阴影 + 1px 描边」成对出现，避免只有阴影时在浅底上糊成一片。
+浮层一律「阴影 + 1px 描边」成对出现；对话框主操作在右、取消在左。
 
-字体全部**本地打包**（`src/assets/fonts/`，拉丁子集 12 个 woff2，由 `scripts/fetch_fonts.py` 生成），
-因为 CSP 是 `default-src 'self'`，运行时拉不到 Google Fonts；中文回落到系统字体。
+## 设计 token 与样式约定
+
+| 层 | 文件 | 内容 |
+| --- | --- | --- |
+| 应用 token | `src/styles/tokens.css` | 间距（4/8/12/16/20/24/32）、字号（11/12/14/18/20）、行高、圆角（4/6/8/10）、字体角色（UI/Display/Mono）、边框层级、控件高度/标题栏/状态栏/树行/侧栏尺寸、层级、动效时长、Windows 关闭色 |
+| 语义色 | `src/theme/semantic.ts` | success / warning / danger / info / folder / highlight / closeHover，全部映射到 Fluent token 或 token 文件里的变量 |
+| 组件内部 | Fluent `tokens.*` | 颜色、边框、焦点、动效曲线、阴影；组件不自己发明颜色 |
+
+约定：
+
+- **组件里不写裸 hex**；唯一的裸色在 `tokens.css`（Windows 关闭色）与 `brand.ts`（品牌色阶）。
+- **间距只用 4pt 刻度**；不再出现 6/10/14/18px 这类离散步长。
+- **字号只用 11/12/14/18/20**；正文 14/20（根节点 14/21），辅助说明 12/18，元信息 11/16，等宽数据 12/20。
+- **圆角只用 4/6/8/10**：控件 4、菜单/预设卡 6、面板/对话框 8。
+- **每屏只有一个主操作**：页面头部的次要操作统一 `size="small"`；标题栏因空间受限用 `small` 是唯一例外。
+- **状态不只靠颜色**：Badge 带文字（打包 / 已排除 / 自动排除），工具链圆点旁边有名称。
+- **焦点可见**：自定义按钮/树行统一 `2px colorStrokeFocus2` 描边；Fluent 组件用自带焦点环。
+- **尊重 reduced motion**：`global.css` 在 `prefers-reduced-motion: reduce` 下把动画/过渡压到 0.01ms。
+- **数字用 tabular-nums**：文件大小、计数、版本号、校验值。
+
+审计时用以下命令找漏网：
+
+```bash
+# 组件里不应再有裸 hex / rgba
+rg '#[0-9a-fA-F]{3,8}|rgba\(' src/components src/theme src/styles
+# 不应再有离散步长
+rg 'gap: "(6|10|14|18)px"|padding: "(6|10|14|18)px' src/components
+```

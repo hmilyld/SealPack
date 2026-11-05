@@ -2,9 +2,11 @@ use std::path::Path;
 
 use crate::defaults;
 use crate::download;
+use crate::excludes;
+use crate::manifest::UpgradePlan;
 use crate::model::{
-    EncryptOptions, FileNode, IgnorePreview, PackageOptions, Project, ProjectList, Stage,
-    StageOutcome, ToolStatus,
+    BuildOptions, EncryptOptions, FileNode, IgnorePreview, PackageOptions, PreflightCheck,
+    PreflightReport, Project, ProjectList, Stage, StageOutcome, ToolStatus,
 };
 use crate::pipeline;
 use crate::runtime::{self, RuntimeStatus};
@@ -96,6 +98,9 @@ pub async fn create_project(
         package_options: PackageOptions::default(),
         encrypt_config: defaults::encrypt_config(&EncryptOptions::default()),
         package_script: defaults::package_script(&PackageOptions::default()),
+        build_options: BuildOptions::default(),
+        schema_version: 3,
+        build_history: Vec::new(),
     };
 
     store::save_project(&state.projects_dir, &project).map_err(to_err)?;
@@ -125,6 +130,9 @@ pub async fn run_stage(
     stage: Stage,
 ) -> Result<StageOutcome, String> {
     let state = state.inner().clone();
+    // 选项是唯一事实源：执行前再对齐一次，避免 150ms 的模板重建还没落地时
+    // 把旧模板写进临时脚本。`generated == false` 时 normalize 不会碰手工模板。
+    let project = normalize(project);
     store::save_project(&state.projects_dir, &project).map_err(to_err)?;
     pipeline::run_stage(&app, &state, &project, stage)
         .await
@@ -148,6 +156,7 @@ pub async fn scan_tree(root: String) -> Result<FileNode, String> {
             .unwrap_or_else(|| root.clone()),
         path: root,
         is_dir: true,
+        size: 0,
         children,
         truncated,
     })
@@ -184,7 +193,10 @@ fn build_tree(dir: &Path, depth: usize, budget: &mut usize) -> (Vec<FileNode>, b
 
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
-        let is_dir = path.is_dir();
+        // 一次 metadata 同时拿 is_dir 与 size，避免每个文件多一次系统调用
+        let metadata = entry.metadata().ok();
+        let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
 
         if is_dir {
             let (children, child_truncated) = build_tree(&path, depth + 1, budget);
@@ -193,6 +205,7 @@ fn build_tree(dir: &Path, depth: usize, budget: &mut usize) -> (Vec<FileNode>, b
                 name,
                 path: path.to_string_lossy().to_string(),
                 is_dir: true,
+                size: 0,
                 children,
                 truncated: child_truncated,
             });
@@ -201,6 +214,7 @@ fn build_tree(dir: &Path, depth: usize, budget: &mut usize) -> (Vec<FileNode>, b
                 name,
                 path: path.to_string_lossy().to_string(),
                 is_dir: false,
+                size,
                 children: Vec::new(),
                 truncated: false,
             });
@@ -216,6 +230,25 @@ fn build_tree(dir: &Path, depth: usize, budget: &mut usize) -> (Vec<FileNode>, b
 #[tauri::command]
 pub async fn exe_version(path: String) -> Result<String, String> {
     Ok(detect_version(&path).unwrap_or_default())
+}
+
+/// 主程序版本信息里的 `ProductName`；拿不到就退回文件名。
+/// 只用于「智能重命名」预填工程名，不参与 AppId 推导。
+#[tauri::command]
+pub async fn exe_product_name(path: String) -> Result<String, String> {
+    let block = read_version_block(&path);
+    if let Some(name) = block
+        .as_deref()
+        .and_then(|bytes| query_version_string(bytes, "ProductName"))
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+    {
+        return Ok(name);
+    }
+    Ok(Path::new(&path)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default())
 }
 
 #[tauri::command]
@@ -296,11 +329,469 @@ pub async fn render_package_script(options: PackageOptions) -> Result<String, St
 /// 打包排除项的预览：自动项 / 自定义项 / 最终 Excludes 字符串。
 #[tauri::command]
 pub async fn project_ignores(project: Project) -> Result<IgnorePreview, String> {
+    let plan = excludes::plan(&project);
     Ok(IgnorePreview {
         auto: project.auto_ignores(),
         custom: project.custom_ignores(),
         combined: project.ignore_list(),
+        packed_count: plan.packed_count,
+        packed_bytes: plan.packed_bytes,
+        excluded_count: plan.excluded_count,
+        truncated: plan.truncated,
+        rule_matched: plan.rule_matched,
     })
+}
+
+/// 计算升级差异（只读）。会扫描并哈希整个主程序目录，放到阻塞线程。
+#[tauri::command]
+pub async fn plan_upgrade(project: Project) -> Result<UpgradePlan, String> {
+    tokio::task::spawn_blocking(move || crate::manifest::plan_upgrade(&project))
+        .await
+        .map_err(|err| format!("计算升级差异失败：{err}"))
+}
+
+fn check(id: &str, label: &str, status: &str, detail: impl Into<String>) -> PreflightCheck {
+    PreflightCheck {
+        id: id.into(),
+        label: label.into(),
+        status: status.into(),
+        detail: detail.into(),
+    }
+}
+
+/// 模板里必须出现的占位符。
+///
+/// 新模板把文件段交给 `${files}`，`${root}` / `${ignore}` 只出现在
+/// `packaging.rs` 展开出来的文本里，模板本身不需要包含它们；旧的手工模板
+/// 仍然自己写 `Source` 行，才要求 `root` / `ignore`。
+fn missing_package_placeholders(script: &str) -> Vec<&'static str> {
+    let mut required = vec!["exe", "name", "version", "appId", "output"];
+    if !script.contains("${files}") {
+        required.push("root");
+        required.push("ignore");
+    }
+    required
+        .into_iter()
+        .filter(|key| !script.contains(&format!("${{{key}}}")))
+        .collect()
+}
+
+fn same_path(a: &str, b: &str) -> bool {
+    let trim = |value: &str| value.replace('/', "\\").trim_end_matches('\\').to_string();
+    trim(a).eq_ignore_ascii_case(&trim(b))
+}
+
+/// 构建前预检：只做只读检查与一次输出目录写入探测，不启动任何外部工具。
+#[tauri::command]
+pub async fn preflight(
+    state: tauri::State<'_, AppState>,
+    project: Project,
+) -> Result<PreflightReport, String> {
+    let mut checks = Vec::new();
+    let root = Path::new(&project.root_path);
+
+    // ---- 主程序 / 工程信息
+    if project.name.trim().is_empty() {
+        checks.push(check(
+            "name",
+            "工程名称",
+            "warn",
+            "工程名称为空，安装包名称会不好辨认",
+        ));
+    } else {
+        checks.push(check("name", "工程名称", "ok", project.name.clone()));
+    }
+
+    if project.exe_file.trim().is_empty() {
+        checks.push(check("exe", "主程序", "error", "还没有选择主程序"));
+    } else if !Path::new(&project.exe_file).is_file() {
+        checks.push(check(
+            "exe",
+            "主程序",
+            "error",
+            format!("找不到主程序：{}", project.exe_file),
+        ));
+    } else {
+        checks.push(check("exe", "主程序", "ok", project.exe_file.clone()));
+    }
+
+    if !root.is_dir() {
+        checks.push(check(
+            "root",
+            "主程序目录",
+            "error",
+            format!("目录不存在：{}", project.root_path),
+        ));
+    } else {
+        checks.push(check("root", "主程序目录", "ok", project.root_path.clone()));
+    }
+
+    if project.version.trim().is_empty() {
+        checks.push(check(
+            "version",
+            "版本号",
+            "warn",
+            "版本号为空，安装包文件名与 AppVersion 会缺少版本",
+        ));
+    } else {
+        checks.push(check("version", "版本号", "ok", project.version.clone()));
+    }
+
+    if project.package_options.app_id.trim().is_empty() {
+        checks.push(check(
+            "appId",
+            "应用标识",
+            "error",
+            "AppId 为空，Inno 脚本会生成无效的 AppId",
+        ));
+    } else {
+        checks.push(check(
+            "appId",
+            "应用标识",
+            "ok",
+            project.package_options.app_id.clone(),
+        ));
+    }
+
+    // ---- 输出目录
+    if project.output_dir.trim().is_empty() {
+        checks.push(check(
+            "output",
+            "输出目录",
+            "error",
+            "还没有选择安装包输出目录",
+        ));
+    } else if same_path(&project.root_path, &project.output_dir) {
+        checks.push(check(
+            "output",
+            "输出目录",
+            "error",
+            "输出目录不能等于主程序目录；否则无法自动排除构建产物",
+        ));
+    } else {
+        match std::fs::create_dir_all(&project.output_dir) {
+            Ok(()) => {
+                let probe = Path::new(&project.output_dir).join(".sealpack-write-test");
+                match std::fs::write(&probe, b"") {
+                    Ok(()) => {
+                        let _ = std::fs::remove_file(&probe);
+                        if crate::model::is_under(&project.root_path, &project.output_dir) {
+                            checks.push(check(
+                                "output",
+                                "输出目录",
+                                "warn",
+                                "输出目录在主程序目录内，会自动排除，但仍建议放到外面",
+                            ));
+                        } else {
+                            checks.push(check(
+                                "output",
+                                "输出目录",
+                                "ok",
+                                project.output_dir.clone(),
+                            ));
+                        }
+                    }
+                    Err(err) => checks.push(check(
+                        "output",
+                        "输出目录",
+                        "error",
+                        format!("输出目录不可写：{err}"),
+                    )),
+                }
+            }
+            Err(err) => checks.push(check(
+                "output",
+                "输出目录",
+                "error",
+                format!("无法创建输出目录：{err}"),
+            )),
+        }
+    }
+
+    // ---- 加密口令
+    let encryption = project.package_options.encryption.as_str();
+    if encryption != "no" && project.password.trim().is_empty() {
+        checks.push(check(
+            "password",
+            "安装包口令",
+            "warn",
+            "安装包加密已开启但口令为空，编译或安装时可能失败",
+        ));
+    } else if encryption == "full" {
+        checks.push(check(
+            "password",
+            "安装包口令",
+            "info",
+            "full 加密的安装包必须用 安装包.exe /PASSWORD=口令 启动",
+        ));
+    } else {
+        checks.push(check("password", "安装包口令", "ok", "口令设置可用"));
+    }
+
+    // ---- 合并项
+    if project.merge_dlls.is_empty() {
+        checks.push(check(
+            "merge",
+            "合并项",
+            "info",
+            "未勾选程序集，合并阶段会自动跳过",
+        ));
+    } else {
+        let missing: Vec<&String> = project
+            .merge_dlls
+            .iter()
+            .filter(|path| !Path::new(path).is_file())
+            .collect();
+        let outside: Vec<&String> = project
+            .merge_dlls
+            .iter()
+            .filter(|path| !crate::model::is_under(&project.root_path, path))
+            .collect();
+
+        if !missing.is_empty() {
+            checks.push(check(
+                "merge",
+                "合并项",
+                "error",
+                format!("{} 个合并项找不到：{}", missing.len(), missing[0]),
+            ));
+        } else if !outside.is_empty() {
+            checks.push(check(
+                "merge",
+                "合并项",
+                "warn",
+                format!("{} 个合并项不在主程序目录内：{}", outside.len(), outside[0]),
+            ));
+        } else {
+            checks.push(check(
+                "merge",
+                "合并项",
+                "ok",
+                format!("{} 个程序集将合并进主程序", project.merge_dlls.len()),
+            ));
+        }
+    }
+
+    // ---- 排除项
+    let custom = project.custom_ignores();
+    let with_comma: Vec<&String> = custom.iter().filter(|item| item.contains(',')).collect();
+    let outside: Vec<&String> = custom
+        .iter()
+        .filter(|item| !item.contains('*') && !item.contains('?'))
+        .filter(|item| !crate::model::is_under(&project.root_path, item))
+        .collect();
+    if !with_comma.is_empty() {
+        checks.push(check(
+            "excludes",
+            "排除项",
+            "error",
+            "排除项不能包含逗号；Inno 的 Excludes 用逗号分隔多项",
+        ));
+    } else if !outside.is_empty() {
+        checks.push(check(
+            "excludes",
+            "排除项",
+            "warn",
+            format!("{} 个排除项不在主程序目录内：{}", outside.len(), outside[0]),
+        ));
+    } else {
+        checks.push(check(
+            "excludes",
+            "排除项",
+            "ok",
+            format!("{} 项自定义排除", custom.len()),
+        ));
+    }
+
+    // ---- 模板占位符
+    let missing = missing_package_placeholders(&project.package_script);
+    if project.package_script.trim().is_empty() {
+        checks.push(check("template", "打包脚本", "error", "打包脚本为空"));
+    } else if !missing.is_empty() {
+        checks.push(check(
+            "template",
+            "打包脚本",
+            "error",
+            format!("脚本缺少占位符：{}", missing.join(", ")),
+        ));
+    } else {
+        checks.push(check("template", "打包脚本", "ok", "必需占位符完整"));
+    }
+
+    // ---- 升级包
+    if project.build_options.includes_upgrade() {
+        let plan_project = project.clone();
+        let plan =
+            tokio::task::spawn_blocking(move || crate::manifest::plan_upgrade(&plan_project))
+                .await
+                .map_err(|err| format!("计算升级差异失败：{err}"))?;
+
+        if !plan.error.is_empty() {
+            checks.push(check("upgrade", "升级包", "error", plan.error));
+        } else if let Some(baseline) = &plan.baseline {
+            let version = if baseline.version.trim().is_empty() {
+                "旧版本目录".to_string()
+            } else {
+                baseline.version.clone()
+            };
+            checks.push(check(
+                "upgrade",
+                "升级包",
+                "ok",
+                format!(
+                    "基线 {} · 新增 {} / 修改 {} / 删除 {} / 未变 {}",
+                    version,
+                    plan.new_count,
+                    plan.modified_count,
+                    plan.deleted_count,
+                    plan.unchanged_count
+                ),
+            ));
+        }
+        for warning in &plan.warnings {
+            checks.push(check("upgrade:warn", "升级包", "warn", warning.clone()));
+        }
+
+        // 升级模式必须有的占位符：文件段、删除段、零向导指令、基线校验、输出名。
+        let upgrade_required = [
+            "files",
+            "artifactSetup",
+            "artifactCode",
+            "artifactLabel",
+            "baselineVersion",
+        ];
+        let upgrade_missing: Vec<&str> = upgrade_required
+            .iter()
+            .copied()
+            .filter(|key| !project.package_script.contains(&format!("${{{key}}}")))
+            .collect();
+        if !upgrade_missing.is_empty() {
+            checks.push(check(
+                "upgrade:template",
+                "升级模板",
+                "error",
+                format!(
+                    "脚本缺少占位符：{}；请点「重新生成」或补上",
+                    upgrade_missing.join(", ")
+                ),
+            ));
+        } else {
+            checks.push(check(
+                "upgrade:template",
+                "升级模板",
+                "ok",
+                "升级占位符完整",
+            ));
+        }
+        if !project.package_script.contains("${installDelete}") {
+            checks.push(check(
+                "upgrade:delete",
+                "升级清理",
+                "warn",
+                "脚本缺少 ${installDelete}，旧版本残留文件不会被删除",
+            ));
+        }
+        if !project.package_script.contains("${runSection}") {
+            checks.push(check(
+                "upgrade:run",
+                "升级启动项",
+                "warn",
+                "脚本缺少 ${runSection}，升级包可能仍会显示安装后启动项",
+            ));
+        }
+    }
+
+    if project.encrypt_config.trim().is_empty() {
+        checks.push(check(
+            "encryptConfig",
+            "加密配置",
+            "warn",
+            "加密配置为空，加密阶段会失败",
+        ));
+    } else {
+        checks.push(check("encryptConfig", "加密配置", "ok", "配置已生成"));
+    }
+
+    // ---- 工具链与运行时
+    let merge_runs = !project.merge_dlls.is_empty();
+    let encrypt_runs = !project.encrypt_options.enabled_protections().is_empty();
+
+    match tools::Toolchain::resolve(&state.tools_dir, &state.user_tools_dir, &state.settings()) {
+        Ok(toolchain) => {
+            if merge_runs && !toolchain.ilmerge.is_file() {
+                checks.push(check("tool:ilmerge", "ILMerge", "error", "找不到 ILMerge"));
+            } else if merge_runs {
+                checks.push(check(
+                    "tool:ilmerge",
+                    "ILMerge",
+                    "ok",
+                    toolchain.ilmerge.display().to_string(),
+                ));
+            }
+            if encrypt_runs && !toolchain.confuser.is_file() {
+                checks.push(check(
+                    "tool:confuser",
+                    "ConfuserEx",
+                    "error",
+                    "找不到 ConfuserEx",
+                ));
+            } else if encrypt_runs {
+                checks.push(check(
+                    "tool:confuser",
+                    "ConfuserEx",
+                    "ok",
+                    toolchain.confuser.display().to_string(),
+                ));
+            }
+            if !toolchain.iscc.is_file() {
+                checks.push(check("tool:iscc", "Inno Setup", "error", "找不到 ISCC"));
+            } else {
+                checks.push(check(
+                    "tool:iscc",
+                    "Inno Setup",
+                    "ok",
+                    toolchain.iscc.display().to_string(),
+                ));
+            }
+        }
+        Err(err) => checks.push(check("tool", "工具链", "error", err.to_string())),
+    }
+
+    if (merge_runs || encrypt_runs) && !runtime::detect().dotnet_available {
+        checks.push(check(
+            "dotnet",
+            ".NET Framework",
+            "warn",
+            "未检测到 .NET Framework 4.x；ILMerge / ConfuserEx 可能无法启动",
+        ));
+    }
+
+    Ok(PreflightReport::new(checks))
+}
+
+/// 取消当前正在执行的阶段：置标志并杀掉进程树。
+#[tauri::command]
+pub async fn cancel_build(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.cancel.cancel();
+    if let Some(pid) = state.cancel.pid() {
+        crate::store::kill_process_tree(pid);
+    }
+    Ok(())
+}
+
+/// 把运行日志写到用户选择的位置（UTF-8 with BOM，记事本可直接看中文）。
+#[tauri::command]
+pub async fn save_log(path: String, content: String) -> Result<(), String> {
+    let target = std::path::PathBuf::from(path);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("无法创建目录 {}：{err}", parent.display()))?;
+    }
+
+    let mut data = Vec::with_capacity(content.len() + 3);
+    data.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
+    data.extend_from_slice(content.as_bytes());
+    std::fs::write(&target, data).map_err(|err| format!("无法写入日志 {}：{err}", target.display()))
 }
 
 #[tauri::command]
@@ -598,5 +1089,46 @@ mod tests {
         assert_ne!(first, detect_app_id(&other.to_string_lossy()));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn exe_product_name_falls_back_to_file_stem() {
+        let dir = std::env::temp_dir().join("sealpack-product-name");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("Standalone.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        let name = exe_product_name(exe.to_string_lossy().to_string())
+            .await
+            .unwrap();
+        assert_eq!(name, "Standalone");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 新模板用 ${files} 展开文件段，root / ignore 不在模板文本里，
+    /// 预检不能因此误报「缺少 root」。
+    #[test]
+    fn generated_package_script_needs_no_root_in_template() {
+        let script = crate::defaults::package_script(&PackageOptions::default());
+        assert!(script.contains("${files}"), "{script}");
+        assert!(
+            missing_package_placeholders(&script).is_empty(),
+            "{:?}",
+            missing_package_placeholders(&script)
+        );
+    }
+
+    /// 旧的手工模板自己写 [Files]，root / ignore 仍然是必需的。
+    #[test]
+    fn old_package_template_still_requires_root_and_ignore() {
+        let script = "#define MyAppName \"${name}\"\n\
+#define MyAppVersion \"${version}\"\n\
+#define MyAppExeName \"${exe}\"\n\
+AppId={{${appId}}\n\
+OutputDir=${output}\n\
+[Files]\n\
+Source: \"${exe}\"; DestDir: \"{app}\"\n";
+        let missing = missing_package_placeholders(script);
+        assert!(missing.contains(&"root"), "{missing:?}");
+        assert!(missing.contains(&"ignore"), "{missing:?}");
     }
 }
