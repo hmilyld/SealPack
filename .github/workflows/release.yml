@@ -7,6 +7,8 @@ name: Release
 # 注意「工作流产物」与「Release 附件」是两回事：
 #   产物在 Actions 的运行页里，需要登录才能下载、默认 30 天过期，
 #   仓库首页与 /releases 都看不到；要让安装包真正对外可见，必须走 Release。
+#
+# Release 正文来自 CHANGELOG.md：优先取与标签同名的版本段，找不到再用 [Unreleased]。
 
 on:
   push:
@@ -106,9 +108,40 @@ jobs:
             exit 1
           fi
           echo "发布标签：$RELEASE_TAG"
+
+          # 优先取 CHANGELOG.md 里与标签同名的版本段；没有就退回 [Unreleased]。
+          # 发版前把 [Unreleased] 改名为 [x.y.z] - 日期，Release 正文就与仓库里的更新日志一致。
+          VERSION="${RELEASE_TAG#v}"
+          notes="$RUNNER_TEMP/release-notes.md"
+          has_notes() {
+            [ -s "$1" ] && grep -q '[^[:space:]]' "$1"
+          }
+          extract_section() {
+            awk -v header="$1" '
+              index($0, header) == 1 { capture = 1; next }
+              capture && /^## \[/ { exit }
+              capture { print }
+            ' CHANGELOG.md
+          }
+          extract_section "## [$VERSION]" > "$notes"
+          if ! has_notes "$notes"; then
+            echo "CHANGELOG.md 里没有 [$VERSION] 段，回退到 [Unreleased]" >&2
+            extract_section "## [Unreleased]" > "$notes"
+          fi
+          if has_notes "$notes"; then
+            echo "Release 正文来自 CHANGELOG.md（$(wc -l < "$notes") 行）"
+          else
+            echo "CHANGELOG.md 里没有可用的更新日志，回退到自动生成的 notes" >&2
+          fi
+
           # 允许先手动建 Release 再补传产物
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          elif has_notes "$notes"; then
+            gh release create "$RELEASE_TAG" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$notes" \
+              "${files[@]}"
           else
             gh release create "$RELEASE_TAG" \
               --title "$RELEASE_TAG" \

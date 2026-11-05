@@ -1,9 +1,11 @@
 # 更新日志
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
-发布新版本时，把 `[Unreleased]` 改成 `[版本号] - YYYY-MM-DD`，并保留这一节作为 GitHub Release 的正文。
+发布新版本时，把 `[Unreleased]` 改成 `[版本号] - YYYY-MM-DD`；`release.yml` 会优先取与标签同名的版本段作为 GitHub Release 正文，找不到再退回 `[Unreleased]`。
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-11-05
 
 ### 新增
 

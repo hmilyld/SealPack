@@ -93,7 +93,7 @@
 | [架构与设计决策](docs/architecture.md) | 模块职责、数据流，以及那些「不知道就会改错」的不变量 |
 | [开发](docs/development.md) | 环境与命令、构建、测试、界面回归探针、生成器一致性校验 |
 | [数据与安全](docs/data-and-security.md) | 数据存放位置、口令存放方式、下载校验、日志打码 |
-| [更新日志](CHANGELOG.md) | 本次未发布变更；发版时作为 Release Notes 使用 |
+| [更新日志](CHANGELOG.md) | 版本更新记录；发版时作为 Release Notes 使用 |
 
 ---
 
